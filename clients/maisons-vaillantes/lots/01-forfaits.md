@@ -159,3 +159,51 @@ demande-t-il une annexe à part ? À faire confirmer par un professionnel.
 **Q4. Le premier patro du forfait Patronage.** En as-tu un en vue ? Son
 directeur est le meilleur juge de ce qui manque.
 *Défaut : construire sur le patro de démonstration.*
+
+## 9. État et limites, au 11 novembre 2026
+
+### Fait et prouvé : l'étape A
+
+- La migration `069_forfaits.sql` est écrite. Une copie est dans
+  `01-forfaits/`. Dans `mv-app`, elle est sur une branche locale
+  `forfaits`, **non poussée et non appliquée à Supabase**.
+- Elle ne réécrit aucune fonction existante : les gardes sont des
+  déclencheurs et des politiques restrictives, posés à côté de l'existant.
+- Le banc (`01-forfaits/lot-forfaits.mjs`, socle dans `reserve/banc/`)
+  rejoue les 68 migrations sur une base en mémoire, puis :
+  - **30 affirmations sur 30 tenues** ;
+  - **10 mutants sur 10 tués** : chaque garde retirée fait échouer le test
+    qui la surveille.
+- Les tests du client passent comme avant : 225 sur 226. Le seul échec
+  (`garde-mdp-provisoire.test.js`) échoue aussi sur `main` : il lui manque
+  les dépendances installées, sans rapport avec ce lot.
+
+### Trois limites assumées de l'étape A
+
+1. **Les lectures par fonction ne sont pas masquées.** `progression_vaillants`,
+   `classement_foyers` et les espaces par code lisent sans passer par les
+   politiques. Un patro Patronage n'a aucune donnée de jeu à y lire, sauf
+   s'il revient du forfait MV. Ce cas est à fermer avant de proposer ce
+   retour à un vrai patro (décision 8).
+2. **On peut encore retirer ce qui existe.** Retirer une validation ou un
+   foyer reste possible par les fonctions prévues pour cela. Le geler
+   aurait bloqué les purges et l'effacement d'un enfant, qui passent par
+   les mêmes tables. L'écran ne le proposera pas.
+3. **Le forfait d'une invitation se règle après l'avoir créée**, par une
+   fonction à part. L'écran de la plateforme n'a pas encore ce réglage.
+
+### Deux découvertes à part
+
+- **La migration 055 ne se rejoue pas sur une base neuve.** Elle change le
+  type de retour de `sante_reperes()` sans la retirer d'abord, ce que
+  Postgres refuse. En production cela a pu passer selon l'histoire de la
+  base. À regarder avant de fonder un environnement de test ou de secours.
+- **La migration 061 (pilotage) est absente du dépôt**, et il n'y a qu'une
+  branche, `main`.
+
+### Reste à faire
+
+- Étape 0 : la carte ligne à ligne des écrans mêlés.
+- Étape B : l'application en forfait Patronage.
+- Étape C : le patro de démonstration.
+- L'audit par une session neuve.

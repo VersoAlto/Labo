@@ -23,6 +23,11 @@ qui sont des hypothèses.
 Les fichiers sont une copie. Ils dépendent de React et des polices du
 dépôt `verso-alto` : ils ne tournent pas seuls depuis ce dossier.
 
+### `banc/` · le banc de test des bases
+
+Une base en mémoire qui rejoue les migrations d'un projet Supabase et
+permet d'éprouver chaque garde avec son mutant. Voir `banc/README.md`.
+
 ## Ce qui manque, et qui pèse le plus
 
 **Un socle commun.** Les comptes, les rôles, le cloisonnement entre

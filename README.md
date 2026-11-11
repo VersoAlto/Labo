@@ -18,6 +18,7 @@ construit sa plateforme sur mesure.
 
 - La méthode est écrite à partir de la lecture de Maisons Vaillantes.
   Elle n'a encore servi pour aucun client : c'est une hypothèse de travail.
-- La réserve contient une seule pièce, le générateur de vitrines.
+- La réserve contient deux pièces : le générateur de vitrines et le banc
+  de test des bases de données.
 - Il n'y a pas encore de socle technique commun (comptes, rôles,
   cloisonnement entre clients). Voir `reserve/README.md`.
