@@ -165,8 +165,8 @@ directeur est le meilleur juge de ce qui manque.
 ### Fait et prouvé : l'étape A
 
 - La migration `069_forfaits.sql` est écrite. Une copie est dans
-  `01-forfaits/`. Dans `mv-app`, elle est sur une branche locale
-  `forfaits`, **non poussée et non appliquée à Supabase**.
+  `01-forfaits/`. Dans `mv-app`, elle est sur la branche `forfaits`,
+  **poussée, non fusionnée dans `main`, non appliquée à Supabase**.
 - Elle ne réécrit aucune fonction existante : les gardes sont des
   déclencheurs et des politiques restrictives, posés à côté de l'existant.
 - Le banc (`01-forfaits/lot-forfaits.mjs`, socle dans `reserve/banc/`)
@@ -201,9 +201,58 @@ directeur est le meilleur juge de ce qui manque.
 - **La migration 061 (pilotage) est absente du dépôt**, et il n'y a qu'une
   branche, `main`.
 
+### Fait et vérifié : le socle de l'étape B
+
+Sur la branche `forfaits` de `mv-app`, **poussée**, deux commits.
+
+- `v2/src/forfait.js` : module pur. Le forfait courant, la liste des écrans
+  du jeu, la règle du mot (`motEnfants`, `titreEnfants`).
+- La session lit le forfait au chargement (`mon_forfait`). Sans réponse du
+  serveur, elle retient « mv ».
+- Le menu et la barre du téléphone ne proposent plus les écrans du jeu en
+  forfait Patronage. « Les Vaillants » y devient « Les enfants », et le
+  sous-titre « Maisons Vaillantes » devient « Patronage ».
+- Un chemin du jeu ouvert à la main montre la page du forfait
+  (`v2/src/views/forfait.js`), sans rien charger.
+- La démonstration s'ouvre en forfait Patronage par `/demo/patronage`.
+- Tests : 234 sur 234, dont 5 nouveaux (`v2/tests/forfait.test.js`).
+- Vu au navigateur, à 1280 px et 390 px : en MV rien ne change ; en
+  Patronage, le menu, les onglets et les quatre écrans du jeu répondent
+  comme prévu, sans erreur.
+
+### Ce qui n'est PAS fait dans l'étape B
+
+Les écrans mêlés ne sont pas retouchés. En forfait Patronage, ils
+montrent encore le jeu. Exemple vérifié : l'écran `/vaillants` s'intitule
+toujours « Les Vaillants », filtre par Maison, et affiche les points, le
+palier et le foyer de chaque enfant.
+
+**Pourquoi l'arrêt ici.** Chaque écran mêlé demande des dizaines de
+retouches fines. `views/vaillants.js` seul en compte une quarantaine :
+le titre, le compteur, les filtres par Maison, la ligne de chaque enfant
+(Maison, foyer, palier, points), le champ « Foyer » du formulaire
+d'inscription, les textes d'aide, la corbeille. Le faire à la suite, en
+fin d'une très longue session, sur une application qui tient des données
+d'enfants, c'était prendre le risque d'une régression pour le forfait MV.
+
+**La façon de faire, pour la suite.** Un écran à la fois, dans cet ordre :
+`vaillants.js`, `fiche.js` et `tiroir-fiche.js`, `piloter.js`,
+`equipe.js`, `jourj.js` avec `appel.js` et `feuille-appel.js`,
+`espaces.js` (parents), `mise-en-route.js`, `recherche.js`,
+`documents.js`, `mes-roles.js`, `venir-familles.js`. Pour chacun :
+1. lire l'écran en entier et lister chaque endroit du jeu ;
+2. passer par `jeuOuvert()` et `motEnfants()`, sans dupliquer l'écran ;
+3. ne pas appeler les fonctions du jeu en forfait Patronage
+   (`progressionVaillants`, `listerFoyers`…) ;
+4. vérifier au navigateur les deux forfaits, à 390 px et 1280 px ;
+5. un commit par écran.
+
 ### Reste à faire
 
-- Étape 0 : la carte ligne à ligne des écrans mêlés.
-- Étape B : l'application en forfait Patronage.
-- Étape C : le patro de démonstration.
+- Étape B, suite : les douze écrans mêlés, un par un.
+- Étape C : un vrai patro de démonstration Patronage. Aujourd'hui
+  `/demo/patronage` rejoue le patro MV avec le jeu masqué par le menu ;
+  le miroir de démonstration ne refuse pas encore les gestes du jeu.
+- L'écran de la plateforme : choisir le forfait d'une invitation.
+- Les lectures par fonction à masquer (limite 1 de l'étape A).
 - L'audit par une session neuve.
