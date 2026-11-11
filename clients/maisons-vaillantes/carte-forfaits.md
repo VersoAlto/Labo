@@ -63,8 +63,10 @@ Préparer cite les foyers dans ses modèles de séance (« vie de foyer »,
 
 « Valider » est l'un des trois gestes de la semaine, sous le pouce sur
 téléphone. Sans lui, la barre du bas n'a plus que deux moments.
-**À vérifier** : `valider.js` enregistre aussi des présences. Il faut
-s'assurer que l'appel suffit à les tenir sans cet écran.
+**Vérifié le 11 novembre** : les présences ne dépendent pas de cet écran.
+L'appel les enregistre seul, d'un geste (`views/appel.js`, fonction
+`enregistrer_appel`, migration 053). `valider.js` peut aussi en corriger
+une, mais le forfait de base n'en a pas besoin.
 
 ### Écrans mêlés (le vrai travail)
 
@@ -134,17 +136,23 @@ compter comme « en retard » un patro de base qui n'a ni foyers ni badges.
    par tranche d'âge.
 6. Un patro existant reste en forfait MV : rien ne change pour lui.
 
-## 6. Questions pour Ruben
+## 6. Réponses de Ruben, le 11 novembre 2026
 
-1. **Le nom.** Le forfait de base s'appelle « Esprit de Patro ». Est-ce le
-   nom du mouvement Esprit de Patronage ? Si oui, l'utiliser engage ta
-   relation avec lui.
-2. **Le vocabulaire.** En forfait de base, dit-on encore « les Vaillants »,
-   ou « les enfants » ?
-3. **La vitrine.** Une seule façade pour les deux forfaits, ou deux ?
-4. **Le chemin de l'éducateur** : base ou MV ?
-5. **L'espace des parents** : que voit une famille en forfait de base ?
-6. **Le prix.** Une maquette porte « Forfait Base 24 €/mois ». Est-ce une
-   donnée fictive ou ton intention ?
-7. **Qui change le forfait d'un patro** : toi seul, ou le directeur peut-il
-   le demander depuis l'outil ?
+1. **Le nom.** « Esprit de Patro » est bien le nom du mouvement : on ne
+   l'utilise pas. Piste de Ruben : « Patronage ».
+2. **Le vocabulaire.** En forfait de base, on dit « les enfants ».
+3. **La règle du mot.** Là où il y a le mot « vaillant », c'est le forfait
+   MV. Le chemin de l'éducateur (apprenti, confirmé, vaillant) est donc MV.
+4. **Le prix.** Rien pour l'instant. Il se décidera une fois l'outil
+   construit.
+
+Restent sans réponse, avec un défaut dans le contrat : la vitrine,
+l'espace des parents en forfait de base, et qui change le forfait d'un
+patro. Voir `lots/01-forfaits.md`.
+
+## 7. Découverte en écrivant le contrat
+
+La migration 061 (le pilotage des patros) **n'est pas dans le dépôt** : on
+passe de 060 à 062. Le contrat de pilotage existe, son code non, du moins
+pas sur la branche lue. Le pilotage ne peut donc pas encore « suivre les
+deux sortes de patros » : il faut d'abord qu'il existe.
