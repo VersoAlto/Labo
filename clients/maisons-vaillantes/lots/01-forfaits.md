@@ -220,39 +220,63 @@ Sur la branche `forfaits` de `mv-app`, **poussée**, deux commits.
   Patronage, le menu, les onglets et les quatre écrans du jeu répondent
   comme prévu, sans erreur.
 
-### Ce qui n'est PAS fait dans l'étape B
+### Fait et vérifié : les écrans mêlés (12 novembre 2026)
 
-Les écrans mêlés ne sont pas retouchés. En forfait Patronage, ils
-montrent encore le jeu. Exemple vérifié : l'écran `/vaillants` s'intitule
-toujours « Les Vaillants », filtre par Maison, et affiche les points, le
-palier et le foyer de chaque enfant.
+Demande de Ruben : finir les écrans, et vérifier que les éducateurs et les
+parents ne voient rien qui touche à MV ou au mot « vaillant ».
 
-**Pourquoi l'arrêt ici.** Chaque écran mêlé demande des dizaines de
-retouches fines. `views/vaillants.js` seul en compte une quarantaine :
-le titre, le compteur, les filtres par Maison, la ligne de chaque enfant
-(Maison, foyer, palier, points), le champ « Foyer » du formulaire
-d'inscription, les textes d'aide, la corbeille. Le faire à la suite, en
-fin d'une très longue session, sur une application qui tient des données
-d'enfants, c'était prendre le risque d'une régression pour le forfait MV.
+**Ce qui a changé, en forfait Patronage**
+- L'espace des familles : ni Maison, ni foyer, ni palier, ni points, ni
+  objectifs. La page de connexion par code du patro (`/p/<slug>`) ne nomme
+  plus Maisons Vaillantes ni le grand frère, et n'a qu'un bouton.
+- La liste des enfants et la fiche : la tranche d'âge à la place de la
+  Maison ; plus de foyer, de palier, de points, d'objectifs, de carte ni
+  de code de grand frère.
+- Piloter : enfants, équipe, séances à venir, fiches provisoires, et les
+  enfants par âge.
+- L'équipe et la fiche d'un éducateur : l'habilitation reste, le chemin
+  apprenti, confirmé, vaillant disparaît.
+- Préparer, le Jour J, l'appel, Mes rôles : les groupes par âge, la
+  feuille d'appel par tranche d'âge, les modèles et les carrés sans foyer.
+- La recherche, la mise en route, Documents, Conformité, Le patro, les
+  inscriptions en ligne, l'import, les familles, les feuilles imprimées.
+- La démonstration retire les données du jeu au lieu de les cacher, et
+  s'ouvre en Patronage côté directeur, éducateur et famille.
+- Migration 069 : `forfait_public`, pour qu'un espace ouvert par code
+  connaisse le forfait de son patro.
 
-**La façon de faire, pour la suite.** Un écran à la fois, dans cet ordre :
-`vaillants.js`, `fiche.js` et `tiroir-fiche.js`, `piloter.js`,
-`equipe.js`, `jourj.js` avec `appel.js` et `feuille-appel.js`,
-`espaces.js` (parents), `mise-en-route.js`, `recherche.js`,
-`documents.js`, `mes-roles.js`, `venir-familles.js`. Pour chacun :
-1. lire l'écran en entier et lister chaque endroit du jeu ;
-2. passer par `jeuOuvert()` et `motEnfants()`, sans dupliquer l'écran ;
-3. ne pas appeler les fonctions du jeu en forfait Patronage
-   (`progressionVaillants`, `listerFoyers`…) ;
-4. vérifier au navigateur les deux forfaits, à 390 px et 1280 px ;
-5. un commit par écran.
+**La preuve** (`01-forfaits/controle-navigateur.cjs`, un vrai navigateur)
+- Forfait MV : 54 écrans comparés avant et après, directeur, éducateur et
+  famille. **Aucun écart de texte.**
+- Forfait Patronage : directeur, éducateur, famille par compte et par
+  code, à 1280 px et 390 px. Le contrôle lit le texte, les libellés
+  cachés, les dialogues d'inscription et de modification, et la recherche.
+  - Familles : **0 mot du jeu.**
+  - Éducateur : 3 relevés, tous faux positifs (« le corps » d'une lettre,
+    et le marqueur du contrôle lui-même).
+  - Directeur : 8 relevés, tous faux positifs (les mêmes, « faire le
+    point », et le nom d'une couleur, « Rouge Esprit de Patronage »).
+- Tests : 234 sur 234. Banc de la base : 31 affirmations, 10 mutants.
+
+**Ce que ce contrôle ne couvre pas**
+1. **Les adresses.** La barre du navigateur dit encore `/vaillants` et
+   `/vaillant/…`. Un éducateur le voit. Les renommer touche tous les liens.
+2. **Avant la connexion.** La page de connexion générale et la vitrine
+   s'appellent Maisons Vaillantes et demandent « grand frère ou parent ? » :
+   avant de se connecter, on ne sait pas de quel patro on est. C'est la
+   question 1, toujours ouverte : un nom au-dessus des deux forfaits.
+3. **Les messages après un geste** n'ont pas tous été déclenchés. Ceux
+   repérés à la lecture du code sont corrigés ; il peut en rester.
+4. **Les courriels** envoyés par Supabase et le contenu détaillé des PDF
+   n'ont pas été relus.
+5. **La vraie base.** Tout est vérifié en démonstration et sur le banc.
+   La migration 069 n'est pas appliquée.
 
 ### Reste à faire
 
-- Étape B, suite : les douze écrans mêlés, un par un.
-- Étape C : un vrai patro de démonstration Patronage. Aujourd'hui
-  `/demo/patronage` rejoue le patro MV avec le jeu masqué par le menu ;
-  le miroir de démonstration ne refuse pas encore les gestes du jeu.
+- Les cinq points non couverts ci-dessus.
+- Le miroir de démonstration ne refuse pas encore les gestes du jeu comme
+  la base le fait : il n'en a simplement plus les données ni les écrans.
 - L'écran de la plateforme : choisir le forfait d'une invitation.
 - Les lectures par fonction à masquer (limite 1 de l'étape A).
 - L'audit par une session neuve.

@@ -85,6 +85,10 @@ async function scenario(db) {
   note('un anonyme ne lit pas son forfait', !!(await (async () => {
     try { await enTantQue(db, null, `select mon_forfait()`, [], 'anon'); return null; } catch (e) { return e.message; } })()));
 
+  // Un espace ouvert par code lit le forfait de son patro, et rien d'autre.
+  const pub = async (patro) => { try { return (await enTantQue(db, null, `select forfait_public($1) f`, [patro], 'anon')).rows[0].f; } catch (e) { return 'erreur : ' + e.message; } };
+  note('un espace par code lit le forfait de son patro', (await pub(pb)) === 'patronage' && (await pub(pa)) === 'mv', `${await pub(pb)} / ${await pub(pa)}`);
+
   // Le patro A passe en patronage : rien ne s'efface, tout se ferme.
   const bas = await comme(ADMIN, `select changer_forfait($1, 'patronage')`, [pa]);
   note('admin change un forfait', !bas.erreur, bas.erreur);

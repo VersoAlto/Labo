@@ -11,3 +11,15 @@
   du forfait, entrée `/demo/patronage`. 234 tests sur 234, vu au navigateur.
 - Rien n'est fusionné dans `main`, rien n'est appliqué à Supabase.
 - Restent les douze écrans mêlés, l'étape C et l'audit.
+
+## 12 novembre 2026
+
+- Les écrans mêlés sont faits, un commit par groupe d'écrans, sur la
+  branche `forfaits` de `mv-app`, poussée.
+- Un contrôle au navigateur compare le forfait MV avant et après (aucun
+  écart sur 54 écrans) et relève les mots du jeu en forfait Patronage
+  (aucun pour les familles ; des faux positifs seulement pour l'équipe).
+- Leçon : le premier contrôle ne lisait que le texte visible. Étendu aux
+  libellés cachés, aux dialogues et à la recherche, il a trouvé une fuite
+  de plus (la recherche proposait encore les écrans du jeu).
+- Rien n'est fusionné dans `main`, rien n'est appliqué à Supabase.

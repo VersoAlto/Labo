@@ -238,3 +238,17 @@ create policy forfait_mv on foyers_responsables as restrictive
 drop policy if exists forfait_mv on droits_valider_tous;
 create policy forfait_mv on droits_valider_tous as restrictive
   for all to authenticated using (not jeu_ferme()) with check (not jeu_ferme());
+
+-- ─── Le forfait, pour un espace ouvert par code ──────────────────
+-- Une famille ou un grand frère entré par son code n'a pas de compte :
+-- `mon_forfait` ne lui répond pas. Le forfait d'un patro n'est pas un
+-- secret (la page publique du patro, `patro_public`, en dit déjà le nom
+-- et la ville) : on le rend pour un identifiant de patro, sans rien
+-- d'autre. C'est du confort d'écran ; le verrou reste dans les gardes.
+create or replace function forfait_public(p_patro uuid)
+returns text
+language sql stable security definer set search_path = public as $fn$
+  select forfait_de(p_patro)::text
+$fn$;
+revoke all on function forfait_public(uuid) from public;
+grant execute on function forfait_public(uuid) to anon, authenticated;
