@@ -261,10 +261,14 @@ parents ne voient rien qui touche à MV ou au mot « vaillant ».
 **Ce que ce contrôle ne couvre pas**
 1. **Les adresses.** La barre du navigateur dit encore `/vaillants` et
    `/vaillant/…`. Un éducateur le voit. Les renommer touche tous les liens.
-2. **Avant la connexion.** La page de connexion générale et la vitrine
-   s'appellent Maisons Vaillantes et demandent « grand frère ou parent ? » :
-   avant de se connecter, on ne sait pas de quel patro on est. C'est la
-   question 1, toujours ouverte : un nom au-dessus des deux forfaits.
+2. **Avant la connexion.** Réglé pour l'essentiel le 12 novembre, sur
+   décision de Ruben (« mets simplement Patronage ») : la page de connexion
+   générale, le code à six chiffres, la création d'un patro et l'onglet du
+   navigateur disent « Patronage ». Restent : la vitrine (`/accueil`), qui
+   présente toujours Maisons Vaillantes ; le nom de l'application une fois
+   installée sur un téléphone (`manifest.webmanifest`, « Vaillantes ») ; et
+   l'en-tête « Esprit de Patronage », avec son logo, en haut des pages de
+   connexion, qui existait avant ce lot.
 3. **Les messages après un geste** n'ont pas tous été déclenchés. Ceux
    repérés à la lecture du code sont corrigés ; il peut en rester.
 4. **Les courriels** envoyés par Supabase et le contenu détaillé des PDF
