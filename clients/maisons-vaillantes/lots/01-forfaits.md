@@ -281,6 +281,53 @@ parents ne voient rien qui touche à MV ou au mot « vaillant ».
 - Les cinq points non couverts ci-dessus.
 - Le miroir de démonstration ne refuse pas encore les gestes du jeu comme
   la base le fait : il n'en a simplement plus les données ni les écrans.
-- L'écran de la plateforme : choisir le forfait d'une invitation.
 - Les lectures par fonction à masquer (limite 1 de l'étape A).
 - L'audit par une session neuve.
+
+## 10. L'écran de la plateforme, le 13 novembre 2026
+
+Demande de Ruben : « Il faut créer l'organe de pilotage. Un pilotage qui
+encadre et "base" et "mv". On reste sur un seul site, qui s'ouvre
+différemment. » Accord donné (« Go ») pour la première marche : le
+forfait dans l'écran `/plateforme`, qui existait déjà.
+
+### Ce qui est construit
+
+- Deux fonctions à la fin de la migration 069, réservées à la plateforme :
+  `inviter_patro` (l'invitation et son forfait dans le même geste) et
+  `plateforme_forfaits` (le forfait de chaque invitation ouverte et de
+  chaque patro : un nom, une ville, une date, rien d'une personne).
+- L'écran : le forfait se choisit à l'invitation, se règle sur une
+  invitation ouverte, se change sur un patro fondé après confirmation.
+- `/demo/plateforme` : le même écran, avec des patros fictifs.
+
+### Décisions par défaut
+
+18. Le forfait proposé d'abord à l'invitation est « Patronage » : se
+    tromper dans ce sens n'ouvre rien de trop.
+19. Changer le forfait d'un patro fondé demande une confirmation qui dit
+    ce que son équipe verra, et que rien n'est effacé.
+20. Sur une base d'avant la 069, l'écran reste celui d'avant.
+
+### Vérifié, et comment
+
+- Banc : 35 affirmations sur 35, 11 mutants tués
+  (`lots/01-forfaits/lot-forfaits.mjs`).
+- Navigateur : 35 contrôles sur 35 à 1280 px, 390 px clair et sombre
+  (`lots/01-forfaits/controle-plateforme.cjs`), en démonstration.
+- Tests de `mv-app` : 234 sur 234.
+
+### Pas vérifié
+
+- Rien sur une vraie base : les appels réels de l'écran aux quatre
+  fonctions n'ont jamais tourné.
+- La garde de `inviter_patro` n'a pas de mutant : `autoriser_acces`,
+  qu'elle appelle, refuse déjà un non-administrateur.
+- Le contrôle de non-régression sur les 54 écrans n'a pas été rejoué
+  après ce changement.
+
+### Ce que ce lot ne fait pas
+
+Le suivi du fonctionnement des patros (contrat
+`v2/docs/pilotage/contrat-pilotage.md` de `mv-app`). Sa migration 061
+n'est pas dans le dépôt.

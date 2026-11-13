@@ -252,3 +252,46 @@ language sql stable security definer set search_path = public as $fn$
 $fn$;
 revoke all on function forfait_public(uuid) from public;
 grant execute on function forfait_public(uuid) to anon, authenticated;
+
+-- ─── La plateforme : inviter avec un forfait, lire les forfaits ──
+-- Une invitation et son forfait naissent dans le même geste : en deux
+-- appels, un second appel raté laisserait l'invitation au défaut « mv »,
+-- c'est-à-dire plus que ce qui a été convenu. `autoriser_acces` (037:112)
+-- n'est pas réécrite ; elle vérifie elle-même le droit de l'appelant.
+create or replace function inviter_patro(p_email text, p_note text, p_forfait forfait_patro)
+returns void
+language plpgsql security definer set search_path = public as $fn$
+begin
+  if not est_admin_plateforme() then
+    raise exception 'Réservé à la plateforme.' using errcode = 'insufficient_privilege';
+  end if;
+  perform autoriser_acces(p_email, p_note);
+  update acces_autorises set forfait = p_forfait
+   where email = lower(trim(p_email)) and utilise_le is null;
+end $fn$;
+revoke all on function inviter_patro(text, text, forfait_patro) from public, anon;
+grant execute on function inviter_patro(text, text, forfait_patro) to authenticated;
+
+-- Ce que l'écran de la plateforme lit : le forfait de chaque invitation
+-- ouverte, et la liste des patros avec le leur. Un nom, une ville, une
+-- date : rien d'une personne du patro, aucun enfant.
+create or replace function plateforme_forfaits()
+returns jsonb
+language plpgsql stable security definer set search_path = public as $fn$
+begin
+  if not est_admin_plateforme() then
+    raise exception 'Réservé à la plateforme.' using errcode = 'insufficient_privilege';
+  end if;
+  return jsonb_build_object(
+    'invitations', coalesce((
+      select jsonb_agg(jsonb_build_object('email', a.email, 'forfait', a.forfait))
+        from acces_autorises a where a.utilise_le is null), '[]'::jsonb),
+    'patros', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'id', p.id, 'nom', p.nom, 'ville', p.ville,
+               'fonde_le', p.created_at, 'forfait', forfait_de(p.id))
+             order by p.created_at desc)
+        from patros p), '[]'::jsonb));
+end $fn$;
+revoke all on function plateforme_forfaits() from public, anon;
+grant execute on function plateforme_forfaits() to authenticated;

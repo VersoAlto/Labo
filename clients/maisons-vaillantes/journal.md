@@ -23,3 +23,13 @@
   libellés cachés, aux dialogues et à la recherche, il a trouvé une fuite
   de plus (la recherche proposait encore les écrans du jeu).
 - Rien n'est fusionné dans `main`, rien n'est appliqué à Supabase.
+
+## 13 novembre 2026 · le forfait dans la plateforme
+
+- L'écran `/plateforme` choisit et change le forfait d'un patro ;
+  `/demo/plateforme` le montre avec des patros fictifs.
+- Banc : 35 sur 35, 11 mutants tués. Navigateur : 35 contrôles sur 35.
+- Leçon : l'invitation et son forfait doivent naître dans un seul appel.
+  En deux appels, un échec du second laisse le défaut, qui ici donnait
+  plus que convenu.
+- Toujours rien sur une vraie base.

@@ -38,6 +38,23 @@ async function scenario(db) {
   note('un patro fondé sans réglage est en mv', (await comme(A, `select mon_forfait() f`)).rows?.[0]?.f === 'mv');
   note('un patro fondé sur invitation patronage est en patronage',
     (await comme(B, `select mon_forfait() f`)).rows?.[0]?.f === 'patronage');
+
+  // L'écran de la plateforme : inviter avec un forfait, lire les forfaits.
+  await su(`insert into auth.users (id, email) values ('00000000-0000-4000-8000-00000000000c', 'c@banc.test')`);
+  const inv = await comme(ADMIN, `select inviter_patro('c@banc.test', 'note', 'patronage')`);
+  const vue = await comme(ADMIN, `select plateforme_forfaits() j`);
+  const j = vue.rows?.[0]?.j || {};
+  note('la plateforme invite avec un forfait',
+    !inv.erreur && (j.invitations || []).some(i => i.email === 'c@banc.test' && i.forfait === 'patronage'),
+    inv.erreur || JSON.stringify(j.invitations));
+  note('un directeur n’invite pas un patro',
+    refuse(await comme(A, `select inviter_patro('d@banc.test', null, 'mv')`), 'Réservé'));
+  note('la plateforme lit le forfait de chaque patro',
+    (j.patros || []).length === 2
+      && j.patros.find(p => p.id === pa)?.forfait === 'mv'
+      && j.patros.find(p => p.id === pb)?.forfait === 'patronage', vue.erreur || JSON.stringify(j.patros));
+  note('un directeur ne lit pas les forfaits de la plateforme',
+    refuse(await comme(A, `select plateforme_forfaits()`), 'Réservé'));
   note('aucune ligne pour un patro mv', (await su(`select count(*)::int n from patros_forfaits where patro_id=$1`, [pa]))[0].n === 0);
 
   // Les objectifs du modèle sont copiés dans les deux patros ; seul le mv les lit.
@@ -125,6 +142,7 @@ const MUTANTS = [
   ['changer_forfait sans garde', `create or replace function changer_forfait(p_patro uuid, p_forfait forfait_patro) returns void language sql security definer set search_path = public as $f$ insert into patros_forfaits (patro_id, forfait) values (p_patro, p_forfait) on conflict (patro_id) do update set forfait = excluded.forfait $f$`, 'un directeur ne change pas un forfait'],
   ['table des forfaits ouverte', `grant select on patros_forfaits to authenticated; create policy tout on patros_forfaits for select to authenticated using (true)`, 'la table des forfaits est fermée'],
   ['forfait_de accordée', `grant execute on function forfait_de(uuid) to authenticated`, 'on ne lit pas le forfait d’un autre patro'],
+  ['plateforme_forfaits sans garde', `create or replace function plateforme_forfaits() returns jsonb language sql stable security definer set search_path = public as $f$ select jsonb_build_object('patros', (select jsonb_agg(jsonb_build_object('id', id)) from patros)) $f$`, 'un directeur ne lit pas les forfaits de la plateforme'],
   ['sans le déclencheur de fondation', `drop trigger patros_forfait_a_la_fondation_trg on patros`, 'un patro fondé sur invitation patronage est en patronage'],
 ];
 
