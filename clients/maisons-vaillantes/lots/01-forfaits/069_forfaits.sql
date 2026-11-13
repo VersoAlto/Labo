@@ -16,16 +16,23 @@
 --   · Le verrou est dans la base. L'écran cache le jeu par confort ;
 --     ce sont les gardes ci-dessous qui le ferment.
 --
--- Ce que la migration ne fait pas (contrat du lot, § 3 et § 9 « limites ») :
---   · elle ne réécrit aucune fonction existante. Les gardes sont des
---     déclencheurs et des politiques restrictives, posés à côté ;
---   · elle ne masque pas les LECTURES par fonction à droits vérifiés
---     (progression_vaillants, classement_foyers, les espaces par
---     code). Un patro « patronage » n'a aucune donnée de jeu à y lire,
---     sauf s'il revient du forfait « mv » : ce cas reste à fermer ;
---   · elle laisse retirer ce qui existe (une validation, un foyer).
---     Geler aussi les retraits bloquerait les purges et l'effacement
---     d'un enfant, qui passent par les mêmes tables.
+-- Le verrou a quatre couches (contrat du lot, § 6, § 11 et § 12) :
+--   1. aucun fait de jeu ne naît (déclencheurs à l'insertion) ;
+--   2. l'accès direct aux tables du jeu est fermé (politiques restrictives) ;
+--   3. ce qui dort ne se défait pas (déclencheurs au retrait et à la
+--      modification), sauf la cascade d'un effacement, la purge d'une
+--      fiche archivée, et les gestes utiles : archiver, réintégrer,
+--      rendre depuis la corbeille ;
+--   4. les lectures et les gestes du jeu qui passent par une fonction à
+--      droits élevés sont repris de leur dernière définition dans le
+--      dépôt, avec une ligne de garde chacun.
+--
+-- Ce que la migration ne fait pas :
+--   · elle ne masque pas les colonnes du jeu de la table `vaillants`
+--     (palier, points, badges) lues en direct par l'équipe d'un patro
+--     revenu du forfait « mv » : ce sont ses propres données, l'écran
+--     ne les montre pas ;
+--   · elle ne masque pas les exports du droit d'accès.
 -- ════════════════════════════════════════════════════════════════
 
 do $$ begin
@@ -83,6 +90,7 @@ grant execute on function jeu_ferme() to authenticated;
 create or replace function changer_forfait(p_patro uuid, p_forfait forfait_patro)
 returns void
 language plpgsql security definer set search_path = public as $fn$
+declare v_avant forfait_patro;
 begin
   if not est_admin_plateforme() then
     raise exception 'Réservé à la plateforme.' using errcode = 'insufficient_privilege';
@@ -90,10 +98,17 @@ begin
   if not exists (select 1 from patros where id = p_patro) then
     raise exception 'Ce patro n''existe pas.';
   end if;
+  v_avant := forfait_de(p_patro);
   insert into patros_forfaits (patro_id, forfait, change_par)
     values (p_patro, p_forfait, auth.uid())
   on conflict (patro_id) do update
     set forfait = excluded.forfait, change_le = now(), change_par = excluded.change_par;
+  -- `patros_forfaits` ne garde que le dernier état : l'histoire va au journal.
+  if v_avant is distinct from p_forfait then
+    insert into action_log (patro_id, acteur, type_action, cible, details)
+      values (p_patro, auth.uid()::text, 'forfait_change', p_forfait::text,
+              jsonb_build_object('de', v_avant, 'vers', p_forfait));
+  end if;
 end $fn$;
 revoke all on function changer_forfait(uuid, forfait_patro) from public, anon;
 grant execute on function changer_forfait(uuid, forfait_patro) to authenticated;
@@ -104,6 +119,11 @@ grant execute on function changer_forfait(uuid, forfait_patro) to authenticated;
 -- le forfait d'une invitation ouverte par une fonction à part.
 alter table acces_autorises
   add column if not exists forfait forfait_patro not null default 'mv';
+-- Les invitations déjà ouvertes viennent d'un temps où tout était
+-- « mv » : la ligne ci-dessus le leur garde. Les suivantes naissent en
+-- « patronage », quel que soit le chemin qui les crée, `autoriser_acces`
+-- comprise : se tromper dans ce sens n'ouvre rien de trop.
+alter table acces_autorises alter column forfait set default 'patronage';
 
 create or replace function regler_forfait_invitation(p_email text, p_forfait forfait_patro)
 returns void
@@ -323,6 +343,12 @@ grant execute on function forfait_public(uuid) to anon, authenticated;
 -- étrangère agit par un déclencheur : on est alors au second niveau).
 -- La tâche de nuit se reconnaît à ce qu'elle ne vient pas de l'API :
 -- PostgREST pose `request.jwt.claims` sur chaque requête, pg_cron jamais.
+-- Ce second signe ne suffit pas (audit du 13 novembre) : une purge lancée
+-- un jour par l'API serait refusée, et avec elle celle de tous les
+-- patros. Les validations ont donc leur garde à elles : celles d'une
+-- fiche ARCHIVÉE se retirent toujours, d'où que vienne le geste. C'est
+-- tout ce que la purge retire (055:1544), et personne ne dévalide un
+-- archivé (055:399).
 create or replace function jeu_fige_au_forfait_patronage()
 returns trigger
 language plpgsql security definer set search_path = public as $fn$
@@ -336,15 +362,70 @@ begin
 end $fn$;
 revoke all on function jeu_fige_au_forfait_patronage() from public, anon, authenticated;
 
+create or replace function validations_fige_au_forfait_patronage()
+returns trigger
+language plpgsql security definer set search_path = public as $fn$
+begin
+  if pg_trigger_depth() = 1 and appel_de_l_api()
+     and forfait_de(old.patro_id) = 'patronage'
+     and not exists (select 1 from vaillants v
+                      where v.id = old.vaillant_id and v.archive_le is not null) then
+    raise exception 'Ce geste appartient au forfait Maisons Vaillantes.'
+      using errcode = 'insufficient_privilege';
+  end if;
+  return old;
+end $fn$;
+revoke all on function validations_fige_au_forfait_patronage() from public, anon, authenticated;
+
 drop trigger if exists validations_fige_trg on validations;
 create trigger validations_fige_trg
   before delete on validations
-  for each row execute function jeu_fige_au_forfait_patronage();
+  for each row execute function validations_fige_au_forfait_patronage();
 
 drop trigger if exists foyers_fige_trg on foyers;
 create trigger foyers_fige_trg
   before delete on foyers
   for each row execute function jeu_fige_au_forfait_patronage();
+
+-- Un foyer en sommeil ne se modifie pas non plus (audit du 13 novembre :
+-- `defaire_repartition`, 064:250, y écrivait un chef). Trois choses
+-- passent : le total des points, que les déclencheurs tiennent à jour ;
+-- une place qui se libère (un enfant archivé quitte son rôle) ; et le
+-- retour d'un enfant rendu depuis la corbeille, qui retrouve sa place.
+create or replace function foyers_fige_au_forfait_patronage()
+returns trigger
+language plpgsql security definer set search_path = public as $fn$
+begin
+  if not (pg_trigger_depth() = 1 and appel_de_l_api()
+          and forfait_de(new.patro_id) = 'patronage') then
+    return new;
+  end if;
+  if new.nom is distinct from old.nom or new.maison is distinct from old.maison
+     or new.patro_id is distinct from old.patro_id then
+    raise exception 'Ce geste appartient au forfait Maisons Vaillantes.'
+      using errcode = 'insufficient_privilege';
+  end if;
+  if new.gf_id is not null
+     and (new.gf_id is distinct from old.gf_id or new.gf_type is distinct from old.gf_type)
+     and not exists (select 1 from vaillants_corbeille c
+                      where c.vaillant_id = new.gf_id and c.patro_id = new.patro_id) then
+    raise exception 'Ce geste appartient au forfait Maisons Vaillantes.'
+      using errcode = 'insufficient_privilege';
+  end if;
+  if new.cf_id is not null and new.cf_id is distinct from old.cf_id
+     and not exists (select 1 from vaillants_corbeille c
+                      where c.vaillant_id = new.cf_id and c.patro_id = new.patro_id) then
+    raise exception 'Ce geste appartient au forfait Maisons Vaillantes.'
+      using errcode = 'insufficient_privilege';
+  end if;
+  return new;
+end $fn$;
+revoke all on function foyers_fige_au_forfait_patronage() from public, anon, authenticated;
+
+drop trigger if exists foyers_fige_maj_trg on foyers;
+create trigger foyers_fige_maj_trg
+  before update on foyers
+  for each row execute function foyers_fige_au_forfait_patronage();
 
 drop trigger if exists foyers_responsables_fige_trg on foyers_responsables;
 create trigger foyers_responsables_fige_trg
@@ -556,6 +637,156 @@ begin
        where f.patro_id = v_patro and f.gf_type = 'vaillant' and f.gf_id = p_gf), '[]'::jsonb));
 end $fn$;
 
+
+-- Cinq fonctions de plus, après l'audit du 13 novembre : la progression
+-- lue par l'équipe, le code d'un grand frère (posé, retiré), et ce que
+-- la famille lit de son enfant, par compte et par code. Pour la famille
+-- on ne ferme pas la fonction, qui porte aussi le prénom et les
+-- sacrements : on en vide les quatre colonnes du jeu.
+
+-- progression_vaillants : reprise de 050_progression_et_validation.sql:136, une garde ajoutée.
+create or replace function progression_vaillants()
+returns table(vaillant_id uuid, age int, total int, acquis int,
+              bronze int, argent int, palier palier_vaillant, badges maison_enum[])
+language sql stable security definer set search_path = public as $fn$
+  select v.id, v.age_progression, c.total, c.acquis,
+         case when c.total > 0 then (4 * c.total + 9) / 10 end,
+         case when c.total > 0 then (7 * c.total + 9) / 10 end,
+         palier_pour(c.acquis, c.total), v.badges_acquis
+    from vaillants v
+    cross join lateral compte_progression(v.id, v.age_progression) c
+   where v.patro_id = current_patro_id()
+     and not jeu_ferme()                     -- 069 : rien en forfait « patronage »
+$fn$;
+
+-- set_pin : reprise de 055_archiver_un_enfant.sql:734, une garde ajoutée.
+create or replace function set_pin(p_type sujet_pin, p_sujet uuid, p_pin text)
+returns void
+language plpgsql security definer set search_path = public, extensions as $fn$
+declare v_patro uuid;
+begin
+  select patro_id into v_patro from profils
+   where id = auth.uid() and role = 'directeur';
+  if v_patro is null then
+    raise exception 'Réservé au directeur.' using errcode = 'insufficient_privilege';
+  end if;
+  if p_type = 'grand_frere' and forfait_de(v_patro) = 'patronage' then   -- 069
+    raise exception 'Ce geste appartient au forfait Maisons Vaillantes.'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- Un archivé n'a plus de code (055) : le dire, plutôt que « pas de votre patro ».
+  if p_type = 'grand_frere' and exists (
+       select 1 from vaillants where id = p_sujet and patro_id = v_patro and archive_le is not null) then
+    raise exception 'Cette fiche est archivée : pas de code de grand frère.' using errcode = 'check_violation';
+  end if;
+
+  if pin_patro_du_sujet(p_type, p_sujet) is distinct from v_patro then
+    raise exception 'Cette personne n''appartient pas à votre patro.' using errcode = 'insufficient_privilege';
+  end if;
+
+  if p_type = 'grand_frere' and exists (select 1 from vaillants where id = p_sujet and provisoire) then
+    raise exception 'Sa fiche est encore provisoire : pas de code de grand frère avant que sa famille ait signé son dossier.'
+      using errcode = 'check_violation';
+  end if;
+
+  -- Un code de grand frère donnera le droit de valider (051) : 6 chiffres.
+  -- À 4 chiffres, la connexion qui cherche dans tout un patro se force en
+  -- un jour environ avec une vingtaine de codes (contre-épreuve du lot B).
+  if p_type = 'grand_frere' and coalesce(p_pin, '') !~ '^[0-9]{6}$' then
+    raise exception 'Le code d''un grand frère comporte 6 chiffres.' using errcode = 'check_violation';
+  end if;
+  if coalesce(p_pin, '') !~ '^[0-9]{4,6}$' then
+    raise exception 'Le code comporte 4 à 6 chiffres.' using errcode = 'check_violation';
+  end if;
+
+  insert into mv_pins(patro_id, sujet_type, sujet_id, pin_hash)
+    values (v_patro, p_type, p_sujet, crypt(p_pin, gen_salt('bf')))
+  on conflict (patro_id, sujet_type, sujet_id)
+    do update set pin_hash = crypt(p_pin, gen_salt('bf'));
+
+  -- Un nouveau code repart sans les échecs de l'ancien.
+  delete from pin_tentatives where portee = 'sujet' and cle = p_sujet::text;
+end $fn$;
+
+-- supprimer_pin : reprise de 047_pin_compteur_et_patro.sql:168, une garde ajoutée.
+create or replace function supprimer_pin(p_type sujet_pin, p_sujet uuid)
+returns void
+language plpgsql security definer set search_path = public as $fn$
+declare v_patro uuid;
+begin
+  select patro_id into v_patro from profils
+   where id = auth.uid() and role = 'directeur';
+  if v_patro is null then
+    raise exception 'Réservé au directeur.' using errcode = 'insufficient_privilege';
+  end if;
+  if p_type = 'grand_frere' and forfait_de(v_patro) = 'patronage' then   -- 069
+    raise exception 'Ce geste appartient au forfait Maisons Vaillantes.'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  delete from mv_pins
+   where patro_id = v_patro and sujet_type = p_type and sujet_id = p_sujet;
+
+  -- Le compteur d'un sujet ne s'efface que si ce sujet est d'ici (constat b).
+  if pin_patro_du_sujet(p_type, p_sujet) = v_patro then
+    delete from pin_tentatives where portee = 'sujet' and cle = p_sujet::text;
+  end if;
+end $fn$;
+
+-- parent_enfants : reprise de 055_archiver_un_enfant.sql:1183, une garde ajoutée.
+create or replace function parent_enfants()
+returns table(vaillant_id uuid, prenom text, nom text, maison maison_enum,
+              age integer, palier palier_vaillant, total_points integer,
+              foyer_nom text, badges_acquis maison_enum[],
+              bapteme boolean, communion boolean, confirmation boolean,
+              archive_le timestamptz)
+language plpgsql stable security definer set search_path = public as $fn$
+declare v_parent uuid := parent_de_session();
+begin
+  return query
+    select v.id, v.prenom, v.nom, v.maison, v.age_progression, 
+           -- 069 : en forfait « patronage », le jeu en sommeil ne part pas vers la famille.
+           case when forfait_de(v.patro_id) = 'patronage' then null else v.palier end,
+           case when forfait_de(v.patro_id) = 'patronage' then null else v.total_points end,
+           case when forfait_de(v.patro_id) = 'patronage' then null else f.nom end,
+           case when forfait_de(v.patro_id) = 'patronage' then null else v.badges_acquis end,
+           v.sacrement_bapteme, v.sacrement_communion, v.sacrement_confirmation,
+           v.archive_le
+    from vaillants v
+    left join foyers f on f.id = v.foyer_id
+    where v.parent_id = v_parent
+    order by v.prenom;
+end $fn$;
+
+-- get_espace_parent : reprise de 055_archiver_un_enfant.sql:1155, une garde ajoutée.
+create or replace function get_espace_parent(p_parent uuid, p_pin text)
+returns table(
+  vaillant_id uuid, prenom text, nom text, maison maison_enum,
+  age int, palier palier_vaillant, total_points int, foyer_nom text,
+  badges_acquis maison_enum[],
+  bapteme boolean, communion boolean, confirmation boolean,
+  archive_le timestamptz
+) language plpgsql security definer set search_path = public, extensions as $fn$
+declare v_patro uuid;
+begin
+  if not verifier_pin_compte('parent', p_parent, p_pin) then
+    return;
+  end if;
+  v_patro := pin_patro_du_sujet('parent', p_parent);
+  return query
+    select v.id, v.prenom, v.nom, v.maison, v.age_progression, 
+           -- 069 : en forfait « patronage », le jeu en sommeil ne part pas vers la famille.
+           case when forfait_de(v.patro_id) = 'patronage' then null else v.palier end,
+           case when forfait_de(v.patro_id) = 'patronage' then null else v.total_points end,
+           case when forfait_de(v.patro_id) = 'patronage' then null else f.nom end,
+           case when forfait_de(v.patro_id) = 'patronage' then null else v.badges_acquis end,
+           v.sacrement_bapteme, v.sacrement_communion, v.sacrement_confirmation,
+           v.archive_le
+    from vaillants v
+    left join foyers f on f.id = v.foyer_id
+    where v.parent_id = p_parent and v.patro_id = v_patro;
+end $fn$;
 
 -- ─── La plateforme : inviter avec un forfait, lire les forfaits ──
 -- Une invitation et son forfait naissent dans le même geste : en deux

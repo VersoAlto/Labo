@@ -47,3 +47,21 @@
   déclencheur. C'est ce recensement qui a montré la corbeille.
 - La migration 055 se rejoue sur une base neuve.
 - Le brief d'audit est écrit ; l'audit reste à lancer par Ruben.
+
+## 13 novembre 2026 · l'audit
+
+- Une session neuve a audité le lot : aucune fuite, aucune porte utile
+  fermée, quatre contournements. Tous corrigés. Banc : 55 sur 55,
+  21 mutants tués.
+- Leçon : l'audit a trouvé en une passe ce que trois passes de l'auteur
+  n'avaient pas vu, parce qu'il a recensé les ÉCRITURES par modification
+  et pas seulement les insertions et les retraits. Une garde par table
+  doit couvrir les trois gestes.
+- Leçon : un défaut « par défaut » qui donne le plus (une invitation qui
+  naît en MV) est un contournement. Le défaut d'une colonne qui décide
+  d'un accès doit être le plus étroit.
+- Leçon : un mutant qui survit après une correction dit que l'épreuve ne
+  prouve plus rien. Rejouer les mutants à chaque changement, pas
+  seulement le scénario.
+- Le dépôt du Labo est public : aucun identifiant de compte n'y a sa
+  place, même dans un banc de test.

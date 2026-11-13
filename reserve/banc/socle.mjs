@@ -38,14 +38,25 @@ create publication supabase_realtime;
 alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
 alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
 alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;
-insert into auth.users (id, email) values ('c6df8302-85d0-4ad0-8292-f0fb7d41d35c', 'fondateur@banc.test');
 `;
+
+/** Le compte que les migrations inscrivent comme administrateur de la plateforme : lu chez elles, jamais recopié ici. */
+function fondateurDesMigrations(dossier, fichiers) {
+  for (const f of fichiers) {
+    const m = /insert into plateforme_admins[^;]*?'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'/is
+      .exec(readFileSync(join(dossier, f), 'utf8'));
+    if (m) return m[1];
+  }
+  return null;
+}
 
 export async function monterBase(dossierMigrations, { jusqua = null, verbeux = false } = {}) {
   const db = new PGlite({ extensions: { pgcrypto, unaccent } });
   await db.exec('create extension if not exists pgcrypto; create extension if not exists unaccent;');
   await db.exec(DOUBLURES);
   const fichiers = readdirSync(dossierMigrations).filter(f => f.endsWith('.sql')).sort();
+  const fondateur = fondateurDesMigrations(dossierMigrations, fichiers);
+  if (fondateur) await db.query(`insert into auth.users (id, email) values ($1, 'fondateur@banc.test')`, [fondateur]);
   const echecs = []; const retraits = [];
   for (const f of fichiers) {
     if (jusqua && f > jusqua) break;
@@ -70,7 +81,7 @@ export async function monterBase(dossierMigrations, { jusqua = null, verbeux = f
       }
     }
   }
-  return { db, echecs, retraits, fichiers };
+  return { db, echecs, retraits, fichiers, fondateur };
 }
 
 /**

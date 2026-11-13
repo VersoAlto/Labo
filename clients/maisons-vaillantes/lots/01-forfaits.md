@@ -403,3 +403,79 @@ ferme jamais une porte utile ». Corrigé, et couvert par deux mutants.
 
 Le brief est écrit : `lots/01-forfaits/brief-audit.md`. Il se donne tel
 quel à une session neuve ouverte sur `mv-app`, branche `forfaits`.
+
+## 12. Après l'audit, le 13 novembre 2026
+
+Ruben a lancé l'audit dans une session neuve, avec le brief, et en a
+rapporté la synthèse. Le rapport complet est resté dans le dossier
+temporaire de cette session : **à fournir**, il détaille neuf écarts
+mineurs dont seuls deux sont connus ici.
+
+### Ce que l'audit a établi
+
+- **Aucune fuite entre patros.** Toutes les tentatives du modèle de
+  menace sont refusées ou rendent zéro ligne.
+- **Aucune porte utile fermée** sur le banc : onze gestes joués en
+  Patronage dans un patro revenu de MV, tous passent.
+- **Quatre contournements**, confirmés en les exécutant (le quatrième à
+  la lecture du code seulement).
+- `request.jwt.claims` est bien posé par PostgREST sur chaque requête,
+  anonyme comprise (lu dans son code source). La version du vrai projet
+  reste à constater.
+
+### Corrections, et décisions par défaut
+
+27. **Un foyer en sommeil ne se modifie pas.** `defaire_repartition`
+    (064:250) y écrivait un chef avec une liste forgée. Passent : le
+    total des points, une place qui se libère, et le retour d'un enfant
+    rendu depuis la corbeille.
+28. **Le code d'un grand frère ne se pose ni ne se retire** en forfait
+    Patronage (`set_pin`, `supprimer_pin`).
+29. **La famille ne reçoit plus le jeu en sommeil** : palier, points,
+    badges et nom du foyer sont vidés dans `parent_enfants` et
+    `get_espace_parent`. L'équipe ne lit plus `progression_vaillants`.
+30. **Une invitation naît en Patronage** quel que soit le chemin qui la
+    crée. Celles déjà ouvertes au moment de la migration restent en MV.
+31. **L'écran n'invite pas quand les forfaits ne se lisent pas.** Il
+    distingue une base d'avant la 069 d'une panne.
+32. **La purge d'une fiche archivée passe d'où qu'elle vienne.** Elle ne
+    dépend plus de la seule distinction entre l'API et la tâche de nuit :
+    c'était le risque que l'audit avait chiffré (une fiche, un patro,
+    et la purge de tous échoue).
+33. **Un changement de forfait laisse une trace** au journal du patro.
+
+### Vérifié, et comment
+
+- Banc : 55 affirmations sur 55, 21 mutants tués.
+- Les 68 migrations se rejouent sans échec.
+- Tests de `mv-app` : 234 sur 234.
+- Navigateur : l'écran de la plateforme, 35 contrôles sur 35.
+
+### Pas vérifié
+
+- Rien sur une vraie base.
+- Les masques des deux lectures de la famille ne sont pas éprouvés par
+  mon banc (il ne monte pas de compte de famille).
+- Le panneau « les forfaits ne se lisent pas » n'a pas été vu dans un
+  navigateur : la démonstration ne sait pas simuler la panne.
+- Ces corrections sont de la même main que le code : elles appellent un
+  second passage d'audit.
+
+### Limites qui restent, dites par l'audit
+
+- L'équipe d'un patro revenu de MV lit encore, en direct, les colonnes du
+  jeu de ses propres enfants (palier, points, badges). Les masquer
+  demande de restructurer la table.
+- Un grand frère archivé puis réintégré perd son rôle, sa place et son
+  code. C'est le comportement de MV lui-même, pas un défaut du lot.
+- Si la version de PostgREST du vrai projet ne posait pas
+  `request.jwt.claims`, les retraits passeraient. Ce serait un
+  contournement, plus un risque pour la purge.
+
+### Le dépôt du Labo est public
+
+L'audit l'a relevé. L'identifiant du compte administrateur a été retiré
+du banc, qui le lit désormais dans les migrations. Il reste dans
+l'historique du dépôt. Ce n'est pas un mot de passe, mais le contrat,
+la migration et le brief d'audit sont lisibles par tous : **à Ruben de
+décider** s'il passe le dépôt en privé.
