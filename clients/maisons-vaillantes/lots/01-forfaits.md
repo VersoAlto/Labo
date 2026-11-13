@@ -316,6 +316,10 @@ forfait dans l'écran `/plateforme`, qui existait déjà.
 - Navigateur : 35 contrôles sur 35 à 1280 px, 390 px clair et sombre
   (`lots/01-forfaits/controle-plateforme.cjs`), en démonstration.
 - Tests de `mv-app` : 234 sur 234.
+- Non-régression rejouée après ce changement : aucun écart de texte sur
+  les 54 écrans du forfait MV ; en forfait Patronage, aucun mot du jeu
+  pour les familles, et les mêmes faux positifs qu'avant pour l'équipe
+  (3 pour l'éducateur, 8 pour le directeur).
 
 ### Pas vérifié
 
@@ -323,8 +327,6 @@ forfait dans l'écran `/plateforme`, qui existait déjà.
   fonctions n'ont jamais tourné.
 - La garde de `inviter_patro` n'a pas de mutant : `autoriser_acces`,
   qu'elle appelle, refuse déjà un non-administrateur.
-- Le contrôle de non-régression sur les 54 écrans n'a pas été rejoué
-  après ce changement.
 
 ### Ce que ce lot ne fait pas
 
