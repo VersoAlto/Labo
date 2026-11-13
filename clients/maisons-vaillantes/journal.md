@@ -33,3 +33,17 @@
   En deux appels, un échec du second laisse le défaut, qui ici donnait
   plus que convenu.
 - Toujours rien sur une vraie base.
+
+## 13 novembre 2026 · le verrou achevé
+
+- Le forfait Patronage gèle le jeu en sommeil (aucun retrait) et éteint
+  cinq lectures. Banc : 47 sur 47, 18 mutants tués.
+- Leçon : j'avais prouvé que le verrou refusait, pas qu'il laissait
+  passer. Réintégrer un archivé et rendre depuis la corbeille étaient
+  refusés à tort. Pour chaque garde, il faut deux épreuves : le geste
+  interdit échoue, **et** les gestes utiles voisins passent.
+- Leçon : recenser d'abord toutes les fonctions qui touchent aux tables
+  gardées (dernière définition de chacune), avant de poser un
+  déclencheur. C'est ce recensement qui a montré la corbeille.
+- La migration 055 se rejoue sur une base neuve.
+- Le brief d'audit est écrit ; l'audit reste à lancer par Ruben.

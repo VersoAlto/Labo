@@ -90,6 +90,19 @@ async function scenario(db) {
     refuse(await comme(B, `select valider_objectif($1, $2, gen_random_uuid(), now())`, [eb.id, ob]), MV));
   note('aucune validation n’est née en patronage', (await su(`select count(*)::int n from validations where patro_id=$1`, [pb]))[0].n === 0);
 
+  // De quoi éprouver le sommeil du jeu : Anne est dans le foyer, et a une seconde validation.
+  const foyerA = (await su(`select id from foyers where patro_id=$1`, [pa]))[0].id;
+  await su(`update vaillants set foyer_id = $1 where id = $2`, [foyerA, ea.id]);
+  const oa3 = (await su(`select id from objectifs where patro_id=$1 and cible='vaillant' and actif and age_cible=$2 and id <> $3 order by ordre desc limit 1`, [pa, ea.age_progression, oa]))[0]?.id;
+  const va3 = await comme(A, `select valider_objectif($1, $2, gen_random_uuid(), now())`, [ea.id, oa3]);
+  if (!oa3 || va3.erreur) throw new Error('préparation : seconde validation → ' + (va3.erreur || 'pas d’objectif'));
+  // Les lectures du jeu répondent en mv : c'est ce que la bascule doit éteindre, et le retour rallumer.
+  const classement = async () => (await comme(A, `select count(*)::int n from classement_foyers()`)).rows?.[0]?.n;
+  note('mv lit son classement', (await classement()) === 1, String(await classement()));
+  // Un geste de retrait passé par une fonction à droits élevés, comme le font devalider_interne et defaire_repartition.
+  await db.exec(`create function banc_retire(p_table text, p_id uuid) returns void language plpgsql security definer set search_path = public as $f$ begin execute format('delete from %I where id = $1', p_table) using p_id; end $f$;
+            grant execute on function banc_retire(text, uuid) to authenticated`);
+
   let gf; try { await su(`update vaillants set est_grand_frere = true where id=$1`, [eb.id]); gf = null; } catch (e) { gf = e.message; }
   note('patronage : pas de grand frère', !!gf && gf.includes(MV), gf || 'accepté');
   let autre; try { await su(`update vaillants set note = 'vu' where id=$1`, [eb.id]); autre = null; } catch (e) { autre = e.message; }
@@ -112,7 +125,39 @@ async function scenario(db) {
   note('après le passage en patronage, les foyers ne se lisent plus', (await comme(A, `select count(*)::int n from foyers`)).rows?.[0]?.n === 0);
   note('… ni les validations', (await comme(A, `select count(*)::int n from validations`)).rows?.[0]?.n === 0);
   note('… mais rien n’est effacé', (await su(`select (select count(*) from foyers where patro_id=$1)::int f, (select count(*) from validations where patro_id=$1)::int v`, [pa]))
-    .every(r => r.f === 1 && r.v === 1));
+    .every(r => r.f === 1 && r.v === 2));
+
+  // Troisième couche : ce qui dort ne se défait pas.
+  const uneValidation = (await su(`select id from validations where patro_id=$1 and objectif_id=$2`, [pa, oa]))[0].id;
+  note('patronage : retirer une validation refusé', refuse(await comme(A, `select devalider_objectif($1)`, [uneValidation]), MV));
+  note('patronage : retirer une validation par une fonction refusé', refuse(await comme(A, `select banc_retire('validations', $1)`, [uneValidation]), MV));
+  note('patronage : supprimer un foyer par une fonction refusé', refuse(await comme(A, `select banc_retire('foyers', $1)`, [foyerA]), MV));
+  note('patronage : sortir un enfant de son foyer refusé', refuse(await comme(A, `update vaillants set foyer_id = null where id = $1`, [ea.id]), MV));
+  note('… et le jeu en sommeil est intact', (await su(`select (select count(*) from foyers where patro_id=$1)::int f, (select count(*) from validations where patro_id=$1)::int v, (select foyer_id from vaillants where id=$2) m`, [pa, ea.id]))
+    .every(r => r.f === 1 && r.v === 2 && r.m === foyerA));
+
+  // Quatrième couche : les lectures du jeu ne rendent rien.
+  note('patronage ne lit plus son classement', (await classement()) === 0, String(await classement()));
+
+  // Les gestes utiles passent toujours : archiver, puis réintégrer dans le foyer d'avant.
+  const arch = await comme(A, `select archiver_vaillant($1)`, [ea.id]);
+  note('patronage : archiver un enfant passe', !arch.erreur
+    && (await su(`select foyer_id, archive_foyer from vaillants where id=$1`, [ea.id])).every(r => r.foyer_id === null && r.archive_foyer === foyerA), arch.erreur);
+  const reint = await comme(A, `select reintegrer_vaillant($1)`, [ea.id]);
+  note('patronage : réintégrer un enfant passe, dans son foyer d’avant', !reint.erreur
+    && (await su(`select foyer_id from vaillants where id=$1`, [ea.id]))[0].foyer_id === foyerA, reint.erreur);
+
+  // … et la corbeille : supprimer, puis rendre, validations comprises.
+  const sup = await comme(A, `select mettre_a_la_corbeille(array[$1]::uuid[], gen_random_uuid())`, [ea.id]);
+  const rendu = sup.erreur ? sup : await comme(A, `select restaurer_vaillants(array[$1]::uuid[])`, [ea.id]);
+  note('patronage : rendre un enfant depuis la corbeille passe', !rendu.erreur
+    && (await su(`select (select foyer_id from vaillants where id=$2) m, (select count(*) from validations where patro_id=$1)::int v`, [pa, ea.id]))
+      .every(r => r.m === foyerA && r.v === 2), rendu.erreur);
+
+  // La tâche de nuit (aucune requête de l'API) retire toujours : c'est la purge à l'échéance.
+  let nuit; try { await su(`delete from validations where patro_id=$1 and objectif_id=$2`, [pa, oa3]); nuit = null; } catch (e) { nuit = e.message; }
+  note('la tâche de nuit retire toujours une validation', nuit === null
+    && (await su(`select count(*)::int n from validations where patro_id=$1`, [pa]))[0].n === 1, nuit);
   // Un AUTRE objectif : revalider le même n'écrit rien, donc ne prouverait rien.
   const oa2 = (await su(`select id from objectifs where patro_id=$1 and cible='vaillant' and actif and age_cible=$2 and id <> $3 order by ordre limit 1`, [pa, ea.age_progression, oa]))[0]?.id;
   if (!oa2) throw new Error('préparation : un seul objectif pour cet âge');
@@ -123,10 +168,12 @@ async function scenario(db) {
   await comme(ADMIN, `select changer_forfait($1, 'mv')`, [pa]);
   note('le retour en mv retrouve les foyers', (await comme(A, `select count(*)::int n from foyers`)).rows?.[0]?.n === 1);
   note('… et les validations', (await comme(A, `select count(*)::int n from validations`)).rows?.[0]?.n === 1);
+  note('… et le classement', (await classement()) === 1, String(await classement()));
 
   // Effacer un enfant reste possible en patronage, validations comprises.
   await comme(ADMIN, `select changer_forfait($1, 'patronage')`, [pa]);
-  let eff; try { await su(`delete from vaillants where id=$1`, [ea.id]); eff = null; } catch (e) { eff = e.message; }
+  const effa = await comme(A, `delete from vaillants where id=$1`, [ea.id]);
+  const eff = effa.erreur || null;
   note('patronage : effacer un enfant emporte ses validations',
     eff === null && (await su(`select count(*)::int n from validations where patro_id=$1`, [pa]))[0].n === 0, eff);
   return R;
@@ -143,6 +190,13 @@ const MUTANTS = [
   ['table des forfaits ouverte', `grant select on patros_forfaits to authenticated; create policy tout on patros_forfaits for select to authenticated using (true)`, 'la table des forfaits est fermée'],
   ['forfait_de accordée', `grant execute on function forfait_de(uuid) to authenticated`, 'on ne lit pas le forfait d’un autre patro'],
   ['plateforme_forfaits sans garde', `create or replace function plateforme_forfaits() returns jsonb language sql stable security definer set search_path = public as $f$ select jsonb_build_object('patros', (select jsonb_agg(jsonb_build_object('id', id)) from patros)) $f$`, 'un directeur ne lit pas les forfaits de la plateforme'],
+  ['sans le gel des validations', `drop trigger validations_fige_trg on validations`, 'patronage : retirer une validation refusé'],
+  ['sans le gel des foyers', `drop trigger foyers_fige_trg on foyers`, 'patronage : supprimer un foyer par une fonction refusé'],
+  ['gel aveugle à la cascade', `create or replace function jeu_fige_au_forfait_patronage() returns trigger language plpgsql security definer set search_path = public as $f$ begin if appel_de_l_api() and forfait_de(old.patro_id) = 'patronage' then raise exception 'Ce geste appartient au forfait Maisons Vaillantes.'; end if; return old; end $f$`, 'patronage : effacer un enfant emporte ses validations'],
+  ['gel aveugle à la tâche de nuit', `create or replace function appel_de_l_api() returns boolean language sql stable as $f$ select true $f$`, 'la tâche de nuit retire toujours une validation'],
+  ['classement sans garde', `create or replace function jeu_ferme() returns boolean language sql stable security definer set search_path = public as $f$ select false $f$`, 'patronage ne lit plus son classement'],
+  ['corbeille sans son passage', `drop trigger validations_forfait_trg on validations; create trigger validations_forfait_trg before insert on validations for each row execute function jeu_reserve_au_forfait_mv()`, 'patronage : rendre un enfant depuis la corbeille passe'],
+  ['réintégration sans son passage', `create or replace function vaillants_jeu_reserve_au_forfait_mv() returns trigger language plpgsql security definer set search_path = public as $f$ begin if forfait_de(new.patro_id) = 'patronage' and new.foyer_id is not null and (tg_op = 'INSERT' or new.foyer_id is distinct from old.foyer_id) then raise exception 'Ce geste appartient au forfait Maisons Vaillantes.'; end if; return new; end $f$`, 'patronage : réintégrer un enfant passe, dans son foyer d’avant'],
   ['sans le déclencheur de fondation', `drop trigger patros_forfait_a_la_fondation_trg on patros`, 'un patro fondé sur invitation patronage est en patronage'],
 ];
 

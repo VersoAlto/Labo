@@ -281,7 +281,6 @@ parents ne voient rien qui touche à MV ou au mot « vaillant ».
 - Les cinq points non couverts ci-dessus.
 - Le miroir de démonstration ne refuse pas encore les gestes du jeu comme
   la base le fait : il n'en a simplement plus les données ni les écrans.
-- Les lectures par fonction à masquer (limite 1 de l'étape A).
 - L'audit par une session neuve.
 
 ## 10. L'écran de la plateforme, le 13 novembre 2026
@@ -333,3 +332,74 @@ forfait dans l'écran `/plateforme`, qui existait déjà.
 Le suivi du fonctionnement des patros (contrat
 `v2/docs/pilotage/contrat-pilotage.md` de `mv-app`). Sa migration 061
 n'est pas dans le dépôt.
+
+## 11. Le verrou achevé, le 13 novembre 2026
+
+Accord de Ruben (« Go ») pour trois chantiers : fermer les deux trous
+connus du verrou, réparer la migration 055, écrire le brief d'audit.
+
+### Un défaut trouvé en chemin
+
+Dans un patro passé de MV à Patronage, **réintégrer un enfant archivé ou
+le rendre depuis la corbeille était refusé** : ces deux gestes reposent
+l'enfant dans son foyer d'avant et lui rendent ses validations, ce que le
+verrou prenait pour du jeu neuf. C'était contraire à la règle « le jeu ne
+ferme jamais une porte utile ». Corrigé, et couvert par deux mutants.
+
+### Décisions par défaut
+
+21. **Ce qui dort ne se défait pas.** En forfait Patronage, retirer une
+    validation, un foyer, un responsable ou un droit de valider est
+    refusé pour un geste venu de l'API. Un enfant ne sort pas non plus de
+    son foyer, sauf en étant archivé.
+22. **Deux retraits passent toujours** : la cascade d'un effacement
+    (enfant, famille, éducateur, patro) et la tâche de nuit qui réduit
+    les fiches archivées à l'échéance.
+23. **Trois gestes utiles passent toujours** : archiver, réintégrer dans
+    le foyer d'avant, rendre depuis la corbeille.
+24. **Cinq lectures du jeu ne rendent plus rien** en forfait Patronage,
+    sans erreur : le classement, les objectifs d'un enfant vus par sa
+    famille (par compte, par code), l'espace du grand frère et sa feuille
+    de validation. Chacune est reprise de sa dernière définition, avec
+    une ligne de garde.
+25. **Les exports du droit d'accès ne sont pas masqués** (`exporter_patro`,
+    `parent_mes_donnees`) : une famille et un directeur ont droit à tout
+    ce qui est tenu sur eux, jeu en sommeil compris.
+26. **Migration 055** : `sante_reperes` change de type de retour. Elle est
+    retirée avant d'être reposée, et ses droits lui sont rendus. La suite
+    des migrations se rejoue maintenant sans échec sur une base neuve.
+
+### Vérifié, et comment
+
+- Banc : 47 affirmations sur 47, 18 mutants tués.
+- Les 68 migrations se rejouent sur une base neuve, sans échec ni
+  retrait forcé.
+- Tests de `mv-app` : 234 sur 234.
+
+### Pas vérifié
+
+- Rien sur une vraie base. En particulier, la garde des retraits suppose
+  que l'API pose `request.jwt.claims` sur chaque requête et que la tâche
+  de nuit ne l'a jamais. C'est le comportement documenté ; il reste à
+  constater sur le projet d'essai. S'il était faux, la purge de nuit
+  pourrait échouer : **à vérifier avant toute mise en production.**
+- Des cinq lectures masquées, seul le classement est éprouvé par le
+  banc. Les quatre autres passent par un code ou un compte de famille,
+  que le scénario ne monte pas.
+- La migration 055 a peut-être déjà été appliquée en production : dans
+  ce cas, la corriger ne change rien là-bas, et c'est sans risque.
+- L'écran n'a pas changé, donc le contrôle au navigateur n'a pas été
+  rejoué.
+
+### Limites qui restent
+
+- Les lectures mêlées (le nom du foyer dans l'espace famille, par
+  exemple) partent encore vers le navigateur d'un patro revenu de MV.
+  L'écran ne les montre pas.
+- `mes_droits_de_valider` et `peut_valider` répondent encore : ce sont
+  des oui ou non sur des droits en sommeil.
+
+### L'audit
+
+Le brief est écrit : `lots/01-forfaits/brief-audit.md`. Il se donne tel
+quel à une session neuve ouverte sur `mv-app`, branche `forfaits`.

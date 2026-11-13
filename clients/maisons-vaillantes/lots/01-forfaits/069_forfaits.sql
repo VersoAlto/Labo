@@ -167,10 +167,29 @@ begin
 end $fn$;
 revoke all on function jeu_reserve_au_forfait_mv() from public, anon, authenticated;
 
+-- Les validations ont leur garde à elles : rendre un enfant depuis la
+-- corbeille (063) lui rend ses validations d'avant, et ce geste-là ne
+-- doit jamais être refusé. On le reconnaît à ce que la fiche est encore
+-- dans la corbeille au moment où ses lignes reviennent (063:593 ne la
+-- retire qu'à la fin).
+create or replace function validations_jeu_reserve_au_forfait_mv()
+returns trigger
+language plpgsql security definer set search_path = public as $fn$
+begin
+  if forfait_de(new.patro_id) = 'patronage'
+     and not exists (select 1 from vaillants_corbeille c
+                      where c.vaillant_id = new.vaillant_id and c.patro_id = new.patro_id) then
+    raise exception 'Ce geste appartient au forfait Maisons Vaillantes.'
+      using errcode = 'insufficient_privilege';
+  end if;
+  return new;
+end $fn$;
+revoke all on function validations_jeu_reserve_au_forfait_mv() from public, anon, authenticated;
+
 drop trigger if exists validations_forfait_trg on validations;
 create trigger validations_forfait_trg
   before insert on validations
-  for each row execute function jeu_reserve_au_forfait_mv();
+  for each row execute function validations_jeu_reserve_au_forfait_mv();
 
 drop trigger if exists foyers_forfait_trg on foyers;
 create trigger foyers_forfait_trg
@@ -187,23 +206,59 @@ create trigger droits_valider_tous_forfait_trg
   before insert on droits_valider_tous
   for each row execute function jeu_reserve_au_forfait_mv();
 
--- Un enfant n'entre pas dans un foyer et ne devient pas grand frère.
--- Seuls ces deux changements sont refusés : tout le reste de la fiche
--- (identité, famille, archive, corbeille) se modifie comme avant.
+-- Vrai pour une requête venue de l'API (PostgREST pose
+-- `request.jwt.claims` sur chacune), faux pour la tâche de nuit.
+create or replace function appel_de_l_api()
+returns boolean
+language sql stable set search_path = public as $fn$
+  select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '') <> ''
+$fn$;
+revoke all on function appel_de_l_api() from public, anon, authenticated;
+
+
+-- Un enfant n'entre pas dans un foyer et ne devient pas grand frère ;
+-- il n'en sort pas non plus, pour que le jeu en sommeil revienne tel
+-- quel. Tout le reste de la fiche se modifie comme avant.
+--
+-- Trois gestes utiles passent toujours :
+--   · archiver : l'enfant quitte son foyer, qui est gardé en mémoire
+--     dans `archive_foyer` (055:205) ;
+--   · réintégrer : il retrouve ce foyer-là, et aucun autre (055:240) ;
+--   · rendre depuis la corbeille : la fiche revient entière (063:423).
 create or replace function vaillants_jeu_reserve_au_forfait_mv()
 returns trigger
 language plpgsql security definer set search_path = public as $fn$
+declare v_refus constant text := 'Ce geste appartient au forfait Maisons Vaillantes.';
 begin
   if forfait_de(new.patro_id) <> 'patronage' then return new; end if;
-  if new.foyer_id is not null
-     and (tg_op = 'INSERT' or new.foyer_id is distinct from old.foyer_id) then
-    raise exception 'Ce geste appartient au forfait Maisons Vaillantes.'
-      using errcode = 'insufficient_privilege';
+  if exists (select 1 from vaillants_corbeille c
+              where c.vaillant_id = new.id and c.patro_id = new.patro_id) then
+    return new;
   end if;
-  if coalesce(new.est_grand_frere, false)
-     and (tg_op = 'INSERT' or not coalesce(old.est_grand_frere, false)) then
-    raise exception 'Ce geste appartient au forfait Maisons Vaillantes.'
-      using errcode = 'insufficient_privilege';
+
+  if tg_op = 'INSERT' then
+    if new.foyer_id is not null or coalesce(new.est_grand_frere, false) then
+      raise exception '%', v_refus using errcode = 'insufficient_privilege';
+    end if;
+    return new;
+  end if;
+
+  -- Entrer.
+  if new.foyer_id is not null and new.foyer_id is distinct from old.foyer_id
+     and not (old.archive_le is not null and new.foyer_id is not distinct from old.archive_foyer) then
+    raise exception '%', v_refus using errcode = 'insufficient_privilege';
+  end if;
+  if coalesce(new.est_grand_frere, false) and not coalesce(old.est_grand_frere, false) then
+    raise exception '%', v_refus using errcode = 'insufficient_privilege';
+  end if;
+
+  -- Sortir : figé pour un geste venu de l'API, sauf l'archivage. La
+  -- cascade (un foyer effacé avec son patro) passe : second niveau.
+  if pg_trigger_depth() = 1 and appel_de_l_api()
+     and not (new.archive_le is not null and old.archive_le is null)
+     and ((old.foyer_id is not null and new.foyer_id is null)
+       or (coalesce(old.est_grand_frere, false) and not coalesce(new.est_grand_frere, false))) then
+    raise exception '%', v_refus using errcode = 'insufficient_privilege';
   end if;
   return new;
 end $fn$;
@@ -252,6 +307,255 @@ language sql stable security definer set search_path = public as $fn$
 $fn$;
 revoke all on function forfait_public(uuid) from public;
 grant execute on function forfait_public(uuid) to anon, authenticated;
+
+-- ─── Le verrou, troisième couche : ce qui dort ne se défait pas ──
+-- Un patro qui passe de « mv » à « patronage » garde tout son jeu en
+-- sommeil : foyers, responsables, validations. La promesse faite à
+-- l'écran de la plateforme est que « tout revient tel quel ». Les deux
+-- premières couches empêchent d'ajouter ; celle-ci empêche de retirer.
+--
+-- Deux retraits doivent pourtant toujours passer :
+--   · la cascade : effacer un enfant, une famille, un éducateur ou le
+--     patro emporte ses lignes de jeu (droit à l'effacement) ;
+--   · la tâche de nuit : `purger_automatique` réduit les fiches
+--     archivées à l'échéance.
+-- La cascade se reconnaît à la profondeur du déclencheur (la clé
+-- étrangère agit par un déclencheur : on est alors au second niveau).
+-- La tâche de nuit se reconnaît à ce qu'elle ne vient pas de l'API :
+-- PostgREST pose `request.jwt.claims` sur chaque requête, pg_cron jamais.
+create or replace function jeu_fige_au_forfait_patronage()
+returns trigger
+language plpgsql security definer set search_path = public as $fn$
+begin
+  if pg_trigger_depth() = 1 and appel_de_l_api()
+     and forfait_de(old.patro_id) = 'patronage' then
+    raise exception 'Ce geste appartient au forfait Maisons Vaillantes.'
+      using errcode = 'insufficient_privilege';
+  end if;
+  return old;
+end $fn$;
+revoke all on function jeu_fige_au_forfait_patronage() from public, anon, authenticated;
+
+drop trigger if exists validations_fige_trg on validations;
+create trigger validations_fige_trg
+  before delete on validations
+  for each row execute function jeu_fige_au_forfait_patronage();
+
+drop trigger if exists foyers_fige_trg on foyers;
+create trigger foyers_fige_trg
+  before delete on foyers
+  for each row execute function jeu_fige_au_forfait_patronage();
+
+drop trigger if exists foyers_responsables_fige_trg on foyers_responsables;
+create trigger foyers_responsables_fige_trg
+  before delete on foyers_responsables
+  for each row execute function jeu_fige_au_forfait_patronage();
+
+drop trigger if exists droits_valider_tous_fige_trg on droits_valider_tous;
+create trigger droits_valider_tous_fige_trg
+  before delete on droits_valider_tous
+  for each row execute function jeu_fige_au_forfait_patronage();
+
+-- ─── Le verrou, quatrième couche : les lectures du jeu ───────────
+-- Cinq fonctions rendent le jeu à l'écran en passant au-dessus des
+-- politiques (elles sont DEFINER) : le classement, les objectifs d'un
+-- enfant vus par sa famille (par compte, par code), l'espace du grand
+-- frère et sa feuille de validation. Chacune est reprise de sa dernière
+-- définition dans le dépôt, au caractère près, avec une seule ligne de
+-- garde. En forfait « patronage » elles ne rendent rien, sans erreur :
+-- un écran qui les appellerait encore reste vide plutôt que cassé.
+--
+-- Ne sont PAS masquées, et c'est voulu : `exporter_patro` et
+-- `parent_mes_donnees`. Ce sont les exports du droit d'accès ; une
+-- famille et un directeur ont droit à tout ce qui est tenu sur eux, jeu
+-- en sommeil compris.
+
+-- classement_foyers : reprise de 050_progression_et_validation.sql:493, une garde ajoutée.
+create or replace function classement_foyers(
+  p_axe text default null, p_maison text default null, p_depuis date default null)
+returns table(foyer_id uuid, foyer_nom text, maison maison_enum,
+              membres bigint, acquis bigint, possibles bigint, part numeric)
+language sql stable security definer set search_path = public as $fn$
+  with membres as (
+    select v.id, v.foyer_id, v.age_progression
+      from vaillants v
+     where v.patro_id = current_patro_id()
+       and v.foyer_id is not null
+       and (p_maison is null or v.maison::text = p_maison)
+  ),
+  possibles as (
+    select m.foyer_id, count(o.id) as n
+      from membres m
+      join objectifs o
+        on o.patro_id = current_patro_id()
+       and o.cible = 'vaillant' and o.actif
+       and o.age_cible = m.age_progression
+       and (p_axe is null or o.axe = p_axe)
+     group by m.foyer_id
+  ),
+  acquis as (
+    select m.foyer_id, count(*) as n
+      from membres m
+      join validations val on val.vaillant_id = m.id
+      join objectifs o on o.id = val.objectif_id
+                      and o.actif and o.age_cible = m.age_progression
+     where (p_axe is null or o.axe = p_axe)
+       and (p_depuis is null or val.valide_le >= p_depuis)
+     group by m.foyer_id
+  )
+  select f.id, f.nom, f.maison,
+         (select count(*) from membres m where m.foyer_id = f.id),
+         coalesce(a.n, 0),
+         coalesce(p.n, 0),
+         case when coalesce(p.n, 0) = 0 then 0
+              else round(100.0 * coalesce(a.n, 0) / p.n, 1) end
+    from foyers f
+    left join possibles p on p.foyer_id = f.id
+    left join acquis    a on a.foyer_id = f.id
+   where f.patro_id = current_patro_id()
+     and not jeu_ferme()                     -- 069 : rien en forfait « patronage »
+     and (p_maison is null or f.maison::text = p_maison)
+   order by 7 desc, 5 desc, f.nom
+$fn$;
+
+-- parent_objectifs_enfant : reprise de 022_comptes_parents.sql:107, une garde ajoutée.
+create or replace function parent_objectifs_enfant(p_vaillant uuid)
+returns table(objectif_id uuid, axe text, libelle text,
+              valide boolean, valide_le timestamptz)
+language plpgsql stable security definer set search_path = public as $fn$
+declare v_parent uuid := parent_de_session(); v_patro uuid; v_age int;
+begin
+  -- Le rattachement est revérifié ici : un parent authentifié qui devine
+  -- l'identifiant d'un autre enfant ne doit rien obtenir.
+  select patro_id, age_progression into v_patro, v_age
+    from vaillants where id = p_vaillant and parent_id = v_parent;
+  if v_patro is null then
+    raise exception 'Cet enfant n''est pas rattaché à votre compte.'
+      using errcode = 'insufficient_privilege';
+  end if;
+  if forfait_de(v_patro) = 'patronage' then return; end if;   -- 069
+
+  return query
+    select o.id, o.axe, o.libelle, (val.id is not null), val.valide_le
+    from objectifs o
+    left join validations val
+      on val.objectif_id = o.id and val.vaillant_id = p_vaillant
+    where o.patro_id = v_patro and o.cible = 'vaillant' and o.age_cible = v_age
+    order by o.ordre;
+end $fn$;
+
+-- get_objectifs_enfant_parent : reprise de 047_pin_compteur_et_patro.sql:309, une garde ajoutée.
+create or replace function get_objectifs_enfant_parent(p_vaillant uuid, p_parent uuid, p_pin text)
+returns table(
+  objectif_id uuid, axe text, libelle text, valide boolean, valide_le timestamptz
+) language plpgsql security definer set search_path = public, extensions as $fn$
+declare v_patro uuid; v_age int;
+begin
+  -- La variante qui COMPTE (constat a), et aucun raise après un échec.
+  if not verifier_pin_compte('parent', p_parent, p_pin) then
+    return;
+  end if;
+  select patro_id, age_progression into v_patro, v_age
+    from vaillants
+   where id = p_vaillant and parent_id = p_parent
+     and patro_id = pin_patro_du_sujet('parent', p_parent);
+  if v_patro is null then
+    raise exception 'Cet enfant n''est pas rattaché à ce parent.' using errcode = 'no_data_found';
+  end if;
+  if forfait_de(v_patro) = 'patronage' then return; end if;   -- 069
+
+  return query
+    select o.id, o.axe, o.libelle,
+           (val.id is not null), val.valide_le
+    from objectifs o
+    left join validations val on val.objectif_id = o.id and val.vaillant_id = p_vaillant
+    where o.patro_id = v_patro and o.cible = 'vaillant' and o.age_cible = v_age
+    order by o.ordre;
+end $fn$;
+
+-- get_espace_grand_frere : reprise de 047_pin_compteur_et_patro.sql:261, une garde ajoutée.
+create or replace function get_espace_grand_frere(p_vaillant uuid, p_pin text)
+returns table(
+  foyer_id uuid, foyer_nom text, foyer_maison maison_enum,
+  membre_id uuid, membre_prenom text, membre_nom text,
+  membre_age int, membre_palier palier_vaillant, membre_points int,
+  membre_bapteme boolean, membre_communion boolean, membre_confirmation boolean,
+  membre_rdv boolean, est_chef_foyer boolean, membre_nb_validations bigint
+) language plpgsql security definer set search_path = public, extensions as $fn$
+declare v_patro uuid;
+begin
+  if not verifier_pin_compte('grand_frere', p_vaillant, p_pin) then
+    return;
+  end if;
+  v_patro := pin_patro_du_sujet('grand_frere', p_vaillant);
+  if forfait_de(v_patro) = 'patronage' then return; end if;   -- 069
+  return query
+    select f.id, f.nom, f.maison,
+           v.id, v.prenom, v.nom,
+           v.age_progression, v.palier, v.total_points,
+           v.sacrement_bapteme, v.sacrement_communion, v.sacrement_confirmation,
+           v.rdv, (v.id = f.cf_id),
+           (select count(*) from validations val where val.vaillant_id = v.id)
+    from foyers f
+    join vaillants v on v.foyer_id = f.id and v.patro_id = v_patro
+    where f.gf_id = p_vaillant and f.gf_type = 'vaillant' and f.patro_id = v_patro;
+end $fn$;
+
+-- espace_validation_grand_frere : reprise de 052_fiche_provisoire.sql:332, une garde ajoutée.
+create or replace function espace_validation_grand_frere(p_gf uuid, p_pin text)
+returns jsonb
+language plpgsql security definer set search_path = public, extensions as $fn$
+declare v_patro uuid; v_seance uuid;
+begin
+  if not verifier_pin_compte('grand_frere', p_gf, p_pin) then
+    return null;
+  end if;
+  v_patro := pin_patro_du_sujet('grand_frere', p_gf);
+  if forfait_de(v_patro) = 'patronage' then                   -- 069
+    return jsonb_build_object('seance', null, 'foyers', '[]'::jsonb);
+  end if;
+
+  -- Un grand frère dont la fiche est encore provisoire ne valide personne (§7).
+  if exists (select 1 from vaillants where id = p_gf and provisoire) then
+    return jsonb_build_object('seance', null, 'foyers', '[]'::jsonb, 'gf_provisoire', true);
+  end if;
+
+  select id into v_seance from seances
+   where patro_id = v_patro and date <= current_date
+   order by date desc limit 1;
+
+  return jsonb_build_object(
+    'seance', v_seance,
+    'foyers', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', f.id, 'nom', f.nom, 'maison', f.maison,
+        'membres', coalesce((
+          select jsonb_agg(jsonb_build_object(
+            'id', e.id, 'prenom', e.prenom, 'nom', e.nom, 'age', e.age_progression,
+            'maison', e.maison, 'palier', e.palier, 'provisoire', e.provisoire, 'badges', e.badges_acquis,
+            'total', c.total, 'acquis', c.acquis,
+            'bronze', case when c.total > 0 then (4 * c.total + 9) / 10 end,
+            'argent', case when c.total > 0 then (7 * c.total + 9) / 10 end,
+            'present', (select p.present from presences p where p.seance_id = v_seance and p.vaillant_id = e.id),
+            'objectifs', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'id', o.id, 'axe', o.axe, 'libelle', o.libelle, 'points', o.points,
+                'valide', val.id is not null,
+                'par_moi', val.valide_par_gf = p_gf,
+                'valide_le', val.valide_le) order by o.ordre)
+                from objectifs o
+                left join validations val on val.objectif_id = o.id and val.vaillant_id = e.id
+               where o.patro_id = v_patro and o.cible = 'vaillant' and o.actif
+                 and o.age_cible = e.age_progression), '[]'::jsonb))
+            order by e.prenom)
+            from vaillants e
+            cross join lateral compte_progression(e.id, e.age_progression) c
+           where e.foyer_id = f.id and e.patro_id = v_patro and e.id <> p_gf), '[]'::jsonb))
+        order by f.nom)
+        from foyers f
+       where f.patro_id = v_patro and f.gf_type = 'vaillant' and f.gf_id = p_gf), '[]'::jsonb));
+end $fn$;
+
 
 -- ─── La plateforme : inviter avec un forfait, lire les forfaits ──
 -- Une invitation et son forfait naissent dans le même geste : en deux

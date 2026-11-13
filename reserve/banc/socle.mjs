@@ -73,9 +73,15 @@ export async function monterBase(dossierMigrations, { jusqua = null, verbeux = f
   return { db, echecs, retraits, fichiers };
 }
 
-/** Exécute `sql` comme le ferait un compte connecté : rôle `authenticated`, identifiant donné. */
+/**
+ * Exécute `sql` comme le ferait une requête de l'API : rôle `authenticated` (ou `anon`), identifiant donné,
+ * et `request.jwt.claims` posé comme le fait PostgREST. Une requête passée par `db.query` directement n'a
+ * pas ces réglages : elle tient lieu de tâche de nuit.
+ */
 export async function enTantQue(db, uid, sql, params = [], role = 'authenticated') {
-  await db.exec(`set role ${role}; select set_config('banc.uid', '${uid ?? ''}', false);`);
+  const revendications = JSON.stringify({ role, ...(uid ? { sub: uid } : {}) });
+  await db.exec(`set role ${role}; select set_config('banc.uid', '${uid ?? ''}', false);
+                 select set_config('request.jwt.claims', '${revendications}', false);`);
   try { return await db.query(sql, params); }
-  finally { await db.exec(`reset role; select set_config('banc.uid', '', false);`); }
+  finally { await db.exec(`reset role; select set_config('banc.uid', '', false); select set_config('request.jwt.claims', '', false);`); }
 }

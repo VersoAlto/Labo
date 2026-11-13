@@ -14,8 +14,9 @@ tâches de nuit, les rôles de l'API et leurs droits par défaut.
 
 - `monterBase(dossier)` rejoue les migrations dans l'ordre, chacune dans
   une transaction, et rend la base, les échecs et les retraits forcés.
-- `enTantQue(base, identifiant, sql)` exécute une requête comme un compte
-  connecté.
+- `enTantQue(base, identifiant, sql)` exécute une requête comme le ferait
+  l'API pour un compte connecté. Une requête passée directement à la
+  base tient lieu de tâche de nuit.
 
 ## S'en servir
 
