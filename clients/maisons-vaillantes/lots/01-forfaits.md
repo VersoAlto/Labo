@@ -160,6 +160,12 @@ demande-t-il une annexe à part ? À faire confirmer par un professionnel.
 directeur est le meilleur juge de ce qui manque.
 *Défaut : construire sur le patro de démonstration.*
 
+- **Ajouté le 15 novembre (second audit, N2).** Un grand frère archivé
+  par erreur puis réintégré perd son rôle, sa place et son code, en MV
+  comme en Patronage. Faut-il que la réintégration les lui rende ? Oui
+  touche à l'archivage pour tous les patros ; non laisse le directeur
+  les refaire à la main (au retour en MV pour un patro en Patronage).
+
 ## 9. État et limites, au 11 novembre 2026
 
 ### Fait et prouvé : l'étape A
@@ -479,3 +485,87 @@ du banc, qui le lit désormais dans les migrations. Il reste dans
 l'historique du dépôt. Ce n'est pas un mot de passe, mais le contrat,
 la migration et le brief d'audit sont lisibles par tous : **à Ruben de
 décider** s'il passe le dépôt en privé.
+
+## 13. Le second passage d'audit, le 15 novembre 2026
+
+La même session d'audit a rendu son rapport complet du premier passage
+(les neuf écarts mineurs y sont enfin connus) puis a repris ses
+scénarios sur les corrections, avec un quatrième qui attaque les
+nouvelles exceptions. Le rapport est consigné dans
+`01-forfaits/rapport-audit.md`.
+
+### Ce que le second passage a établi
+
+- **Les corrections tiennent et n'ont rien cassé.** Chef de foyer, code
+  de grand frère, invitation et purge : fermés, en l'exécutant.
+- **Les trois exceptions ne se laissent pas fabriquer.** « Fiche
+  archivée », « retour au foyer d'avant », « dans la corbeille » :
+  attaquées exprès, en direct et par les fonctions (retirer des
+  validations à un archivé, le poser dans un autre foyer, nommer chef
+  un enfant à la corbeille, réinsérer une fiche avec son identifiant).
+  Zéro effet ou refus. J'avais prédit le contraire avant de lire le
+  rapport : je m'étais trompé.
+- **Les cinq fonctions reprises sont identiques** à leur définition
+  d'avant, à la garde près, droits compris.
+- **Les masques de la famille et le panneau de panne** sont éprouvés,
+  ce dernier dans Chromium.
+
+### Corrections, et décisions par défaut
+
+34. **L'histoire des forfaits vit hors du patro** (N1). Une table fermée,
+    `forfaits_historique`, reçoit chaque fondation et chaque changement :
+    qui, quand, de quoi vers quoi. Aucune fonction ne la vide, elle
+    survit à l'effacement du patro, elle ne tient rien d'une personne.
+    Le journal du patro garde sa ligne pour informer le directeur, mais
+    ce n'est plus lui qui fait foi.
+35. **L'équipe ne lit plus le jeu en sommeil** (C3, la moitié restante).
+    `mes_droits_de_valider` ne rend plus ses foyers ni le droit de tout
+    valider ; `mise_en_route` ne compte plus les foyers ;
+    `familles_seance` et `corbeille_vaillants` ne disent plus le foyer
+    ni les points. On vide des colonnes, on ne ferme aucune lecture.
+36. **Le grand frère n'entre plus par son code** dans un jeu en sommeil :
+    `login_pin` rend « aucun sujet », comme un code faux, sans compter
+    de tentative.
+37. **Réinviter une adresse qui a déjà fondé est refusé** (E3), au lieu
+    de réussir sans rien faire.
+38. **Le panneau de panne ne se confond plus avec une base ancienne**
+    (N3) : seuls les codes d'une fonction absente comptent.
+39. **En panne au chargement, l'écran reprend le dernier forfait lu**
+    sur l'appareil (E7), à défaut « mv ». La base reste seule juge.
+40. **Le commentaire de `plateforme_forfaits` dit ce qu'elle rend** (E5).
+
+### Laissé ouvert, volontairement
+
+- **N2 · un grand frère archivé puis réintégré** perd rôle, place et code.
+  C'est déjà le cas en MV. En Patronage, le directeur ne peut plus les
+  lui rendre avant le retour en MV ; il le fera alors à la main. Le
+  corriger demande de toucher à l'archivage lui-même : **question pour
+  Ruben** (§ 8), pas une décision par défaut.
+- **E6 · `forfait_public`** dit à un anonyme le forfait d'un patro dont
+  il a l'identifiant. Voulu.
+- **E8 · les gardes tiennent par construction.** Aucun chemin trouvé en
+  les attaquant ; une fonction future pourrait en trouver un. Chaque lot
+  qui touche au jeu rejoue ce banc.
+- **La limite assumée** (colonnes du jeu de `vaillants` lues en direct
+  par l'équipe) : jugée acceptable par l'audit, à une condition que je
+  reprends : **le contrat signé avec un patro qui passe de MV à
+  Patronage dit que sa progression est conservée et reste lisible par
+  son équipe.**
+
+### Vérifié, et comment
+
+- Banc : 67 affirmations sur 67 ; 29 mutants, tous tués par leur
+  affirmation (aucun par un plantage du scénario). Les cinq mutants des
+  nouvelles lectures remettent la définition d'avant la 069, tirée telle
+  quelle des migrations.
+- Les 68 migrations et la 069 se rejouent sans échec.
+- Tests de `mv-app` : 234 sur 234 ; construction propre.
+- Navigateur : l'écran de la plateforme, 35 contrôles sur 35.
+
+### Pas vérifié
+
+- Toujours rien sur une vraie base, ni la version de PostgREST du vrai
+  projet. C'est le préalable à toute mise en production.
+- Ces corrections-ci sont de nouveau de ma main.
+- Le repli de l'écran sur le dernier forfait retenu n'est éprouvé que
+  par lecture.

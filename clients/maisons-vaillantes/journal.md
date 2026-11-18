@@ -65,3 +65,26 @@
   seulement le scénario.
 - Le dépôt du Labo est public : aucun identifiant de compte n'y a sa
   place, même dans un banc de test.
+
+## 15 novembre 2026 · le second passage d'audit
+
+**Ce qui a marché.** Rendre le rapport complet avant le second passage :
+les neuf écarts mineurs, perdus avec le premier dossier temporaire, ont
+été réécrits dans la conversation. L'auditeur a attaqué mes exceptions
+exprès, ce que mon banc ne faisait pas, et elles ont tenu.
+
+**Ce qui a raté.** J'ai prédit, en lisant son script sans ses résultats,
+que la corbeille et les fiches archivées laisseraient passer du jeu.
+C'était faux. Une lecture de son propre code n'est pas une épreuve, même
+pour annoncer un défaut.
+
+**Ce qu'il faut retenir.**
+- Un mutant « tué » parce que le scénario plante ne prouve rien. Le banc
+  affiche maintenant pourquoi chaque mutant meurt.
+- Pour une fonction reprise avec une garde, le meilleur mutant est la
+  définition d'avant, tirée telle quelle des migrations.
+- Une preuve de la plateforme ne vit pas dans une table que le client
+  peut vider.
+- Demander à l'auditeur d'afficher son rapport en entier dans la
+  conversation, dès le premier passage.
+

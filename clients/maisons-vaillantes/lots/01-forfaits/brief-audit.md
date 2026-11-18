@@ -121,6 +121,10 @@ Un rapport, pas des correctifs. Pour chaque constat :
 - ce que tu as **vérifié en l'exécutant**, séparé de ce que tu as
   seulement lu.
 
+**Affiche le rapport en entier dans la conversation**, pas dans un
+fichier : ton dossier de travail est temporaire, et personne d'autre ne
+le lit.
+
 Dis aussi ce que tu n'as pas pu regarder. Un audit qui ne dit pas ses
 limites vaut ceux qu'il remplace.
 

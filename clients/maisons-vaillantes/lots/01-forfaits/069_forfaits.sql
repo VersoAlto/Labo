@@ -32,7 +32,10 @@
 --     (palier, points, badges) lues en direct par l'équipe d'un patro
 --     revenu du forfait « mv » : ce sont ses propres données, l'écran
 --     ne les montre pas ;
---   · elle ne masque pas les exports du droit d'accès.
+--   · elle ne masque pas les exports du droit d'accès ;
+--   · elle ne rend pas sa place à un grand frère archivé puis réintégré
+--     pendant le sommeil (second audit, N2) : c'est déjà le cas en
+--     « mv », et le directeur la lui rend au retour.
 -- ════════════════════════════════════════════════════════════════
 
 do $$ begin
@@ -48,6 +51,25 @@ create table if not exists patros_forfaits (
 );
 alter table patros_forfaits enable row level security;
 revoke all on patros_forfaits from public, anon, authenticated;
+
+-- L'histoire des forfaits (second audit, N1). Le journal du patro
+-- (`action_log`) s'efface par son directeur (023:169) et d'office au
+-- bout d'un an : ce n'est pas le lieu d'une preuve de la plateforme.
+-- Cette table-ci est fermée comme `patros_forfaits`, aucune fonction ne
+-- la vide, et elle survit à l'effacement du patro (pas de clé
+-- étrangère) : on y lit qui a choisi quel forfait, et quand. Elle ne
+-- tient rien d'une personne du patro.
+create table if not exists forfaits_historique (
+  id        bigint generated always as identity primary key,
+  patro_id  uuid not null,
+  geste     text not null check (geste in ('fondation', 'changement')),
+  de        forfait_patro,
+  vers      forfait_patro not null,
+  le        timestamptz not null default now(),
+  par       uuid
+);
+alter table forfaits_historique enable row level security;
+revoke all on forfaits_historique from public, anon, authenticated;
 
 -- ─── Lire le forfait ─────────────────────────────────────────────
 -- Interne : reçoit un identifiant de patro, donc n'est accordée à
@@ -103,8 +125,12 @@ begin
     values (p_patro, p_forfait, auth.uid())
   on conflict (patro_id) do update
     set forfait = excluded.forfait, change_le = now(), change_par = excluded.change_par;
-  -- `patros_forfaits` ne garde que le dernier état : l'histoire va au journal.
+  -- `patros_forfaits` ne garde que le dernier état. L'histoire va dans
+  -- `forfaits_historique`, qui fait foi ; le journal du patro le dit
+  -- aussi à son directeur.
   if v_avant is distinct from p_forfait then
+    insert into forfaits_historique (patro_id, geste, de, vers, par)
+      values (p_patro, 'changement', v_avant, p_forfait, auth.uid());
     insert into action_log (patro_id, acteur, type_action, cible, details)
       values (p_patro, auth.uid()::text, 'forfait_change', p_forfait::text,
               jsonb_build_object('de', v_avant, 'vers', p_forfait));
@@ -160,6 +186,9 @@ begin
       values (new.id, 'patronage', auth.uid())
     on conflict (patro_id) do nothing;
   end if;
+  -- Le forfait de naissance s'écrit aussi : sans invitation lue, « mv ».
+  insert into forfaits_historique (patro_id, geste, vers, par)
+    values (new.id, 'fondation', coalesce(v_forfait, 'mv'), auth.uid());
   return new;
 end $fn$;
 revoke all on function patros_forfait_a_la_fondation() from public, anon, authenticated;
@@ -788,6 +817,158 @@ begin
     where v.parent_id = p_parent and v.patro_id = v_patro;
 end $fn$;
 
+-- Cinq fonctions de plus, après le second audit (15 novembre) : ce que
+-- l'équipe lit encore du jeu en sommeil (ses foyers et son droit de
+-- valider, le compte des foyers, le foyer de chaque enfant à l'appel et
+-- dans la corbeille), et l'entrée du grand frère par son code. On ne
+-- ferme aucune de ces lectures, qui servent aussi hors du jeu : on en
+-- vide les colonnes du jeu.
+
+-- mes_droits_de_valider : reprise de 068_validation_par_groupe.sql:57, une garde ajoutée.
+create or replace function mes_droits_de_valider()
+returns jsonb
+language sql stable security definer set search_path = public as $fn$
+  select jsonb_build_object(
+    'tous', coalesce((select role = 'directeur' from profils where id = auth.uid()), false)
+            or exists (select 1 from droits_valider_tous where profil_id = auth.uid()
+                        and patro_id = current_patro_id()
+                        and not jeu_ferme()),                  -- 069
+    'foyers', coalesce((select jsonb_agg(jsonb_build_object('foyer', foyer_id, 'nature', nature, 'depuis', depuis))
+                          from foyers_responsables
+                         where profil_id = auth.uid() and patro_id = current_patro_id()
+                           and not jeu_ferme()), '[]'::jsonb),   -- 069
+    'enfants', coalesce((select jsonb_agg(distinct k)
+                           from groupes_seance g
+                           join seances s on s.id = g.seance_id and s.patro_id = g.patro_id
+                           cross join lateral unnest(g.enfants) k
+                          where g.patro_id = current_patro_id()
+                            and auth.uid() = any(g.educateurs)
+                            and s.date between (now() at time zone 'Europe/Paris')::date - 14
+                                           and (now() at time zone 'Europe/Paris')::date), '[]'::jsonb))
+$fn$;
+
+-- mise_en_route : reprise de 055_archiver_un_enfant.sql:1319, une garde ajoutée.
+create or replace function public.mise_en_route()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_patro uuid := current_patro_id();
+  v_moi   uuid := auth.uid();
+  r       jsonb;
+begin
+  if not is_directeur() then
+    raise exception 'Réservé au directeur.' using errcode = 'insufficient_privilege';
+  end if;
+
+  select jsonb_build_object(
+    'identite', coalesce(btrim(p.asso_nom), '') <> ''
+            and coalesce(btrim(p.asso_representant), '') <> ''
+            and coalesce(btrim(p.asso_email), '') <> '',
+    'mot', coalesce(btrim(p.message_parents), '') <> '',
+    'mfa', exists (select 1 from auth.mfa_factors f
+                    where f.user_id = v_moi and f.status = 'verified'),
+    -- 069 : en forfait « patronage », le jeu en sommeil ne se compte pas.
+    'foyers',    case when jeu_ferme() then null else (select count(*) from foyers    where patro_id = v_patro) end,
+    'foyers_gf', case when jeu_ferme() then null else (select count(*) from foyers    where patro_id = v_patro and gf_id is not null) end,
+    'vaillants', (select count(*) from vaillants where patro_id = v_patro and archive_le is null),
+    'equipe',    (select count(*) from profils   where patro_id = v_patro),
+    'habilites', (select count(*) from profils   where patro_id = v_patro
+                                                  and diplome_abus and honorabilite_tam),
+    -- Une famille « ouverte » : invitée par courriel, ou dotée d'un code.
+    'familles',  (select count(*) from parents where patro_id = v_patro
+                                                and (auth_id is not null or invite_le is not null))
+               + (select count(*) from mv_pins where patro_id = v_patro and sujet_type = 'parent'),
+    'seances',   (select count(*) from seances where patro_id = v_patro)
+  )
+  into r
+  from patros p
+  where p.id = v_patro;
+
+  return coalesce(r, '{}'::jsonb);
+end $$;
+
+-- familles_seance : reprise de 058_reponses_des_familles.sql:402, une garde ajoutée.
+create or replace function familles_seance(p_seance uuid)
+returns table(vaillant_id uuid, prenom text, nom text, foyer_id uuid, foyer_nom text,
+              reponse text, note text, mot_cache boolean, repondu_le timestamptz, repondu_par uuid)
+language sql stable security definer set search_path = public as $fn$
+  with lecteur as (
+    select current_patro_id() as patro, peut_voir_sante() as lit_le_mot
+  )
+  select v.id, v.prenom, v.nom,
+         -- 069 : en forfait « patronage », le foyer en sommeil ne se dit pas.
+         case when jeu_ferme() then null else f.id end, case when jeu_ferme() then null else f.nom end, i.reponse,
+         case when l.lit_le_mot then i.note end,
+         (i.note is not null and not l.lit_le_mot),
+         i.repondu_le, i.repondu_par
+    from lecteur l
+    join vaillants v on v.patro_id = l.patro and v.archive_le is null
+    left join foyers f on f.id = v.foyer_id
+    left join inscriptions i on i.vaillant_id = v.id and i.seance_id = p_seance
+   where exists (select 1 from seances s where s.id = p_seance and s.patro_id = l.patro)
+   order by case when jeu_ferme() then null else f.nom end nulls last, v.prenom, v.nom
+$fn$;
+
+-- corbeille_vaillants : reprise de 063_corbeille_vaillants.sql:671, une garde ajoutée.
+create or replace function corbeille_vaillants()
+returns table(
+  vaillant_id uuid, prenom text, nom text, maison maison_enum, age int, archive boolean,
+  points int, foyer_nom text, lot uuid, supprime_le timestamptz, supprime_par uuid,
+  restaurable_jusqu timestamptz, homonyme boolean
+)
+language plpgsql stable security definer set search_path = public as $fn$
+declare v_patro uuid := current_patro_id();
+begin
+  if v_patro is null or not is_directeur() then
+    raise exception 'La corbeille est réservée au directeur.' using errcode = 'insufficient_privilege';
+  end if;
+  return query
+    select c.vaillant_id, c.prenom, c.nom, c.maison, c.age, c.archive,
+           -- 069 : en forfait « patronage », ni points ni foyer.
+           case when jeu_ferme() then null else c.points end, case when jeu_ferme() then null else f.nom end, c.lot,
+           c.supprime_le, c.supprime_par, c.supprime_le + interval '30 days',
+           exists (select 1 from vaillants w
+                    where w.patro_id = c.patro_id and w.archive_le is null
+                      and slugify(w.prenom) = slugify(c.prenom)
+                      and slugify(coalesce(w.nom, '')) = slugify(coalesce(c.nom, '')))
+      from vaillants_corbeille c
+      left join foyers f on f.id = c.foyer_id and f.patro_id = c.patro_id
+     where c.patro_id = v_patro
+       and c.supprime_le > now() - interval '30 days'
+       and not exists (select 1 from vaillants v where v.id = c.vaillant_id)
+     order by c.supprime_le desc, c.nom nulls first, c.prenom;
+end $fn$;
+
+-- login_pin : reprise de 047_pin_compteur_et_patro.sql:198, une garde ajoutée.
+create or replace function login_pin(p_patro uuid, p_type sujet_pin, p_pin text)
+returns table(sujet_id uuid, patro_id uuid)
+language plpgsql security definer set search_path = public, extensions as $fn$
+declare v_cle text; v_trouve uuid;
+begin
+  if p_patro is null or p_type is null then return; end if;
+  -- 069 : le grand frère n'entre pas dans un jeu en sommeil. On rend
+  -- « aucun sujet », comme un code faux, sans compter de tentative.
+  if p_type = 'grand_frere' and forfait_de(p_patro) = 'patronage' then return; end if;
+  v_cle := p_patro::text || ':' || p_type::text;
+  perform pin_verifier_blocage('patro', v_cle);
+
+  select m.sujet_id into v_trouve from mv_pins m
+   where m.patro_id = p_patro and m.sujet_type = p_type
+     and m.pin_hash = crypt(coalesce(p_pin, ''), m.pin_hash)
+   limit 1;
+
+  perform pin_noter_tentative('patro', v_cle, v_trouve is not null);
+  if v_trouve is null then return; end if;
+
+  -- Une connexion réussie efface le compteur du sujet lui-même (pas celui du patro).
+  perform pin_noter_tentative('sujet', v_trouve::text, true);
+  return query select v_trouve, p_patro;
+end $fn$;
+
 -- ─── La plateforme : inviter avec un forfait, lire les forfaits ──
 -- Une invitation et son forfait naissent dans le même geste : en deux
 -- appels, un second appel raté laisserait l'invitation au défaut « mv »,
@@ -800,6 +981,12 @@ begin
   if not est_admin_plateforme() then
     raise exception 'Réservé à la plateforme.' using errcode = 'insufficient_privilege';
   end if;
+  -- `autoriser_acces` ne rouvre pas une invitation utilisée (037:112) :
+  -- sans ce refus, l'appel réussirait sans rien faire (second audit, E3).
+  if exists (select 1 from acces_autorises
+              where email = lower(trim(p_email)) and utilise_le is not null) then
+    raise exception 'Cette adresse a déjà fondé un patro.';
+  end if;
   perform autoriser_acces(p_email, p_note);
   update acces_autorises set forfait = p_forfait
    where email = lower(trim(p_email)) and utilise_le is null;
@@ -807,9 +994,11 @@ end $fn$;
 revoke all on function inviter_patro(text, text, forfait_patro) from public, anon;
 grant execute on function inviter_patro(text, text, forfait_patro) to authenticated;
 
--- Ce que l'écran de la plateforme lit : le forfait de chaque invitation
--- ouverte, et la liste des patros avec le leur. Un nom, une ville, une
--- date : rien d'une personne du patro, aucun enfant.
+-- Ce que l'écran de la plateforme lit : l'adresse et le forfait de
+-- chaque invitation ouverte (l'administrateur les lit déjà dans
+-- `acces_autorises`), et pour chaque patro son identifiant, son nom, sa
+-- ville, sa date de fondation et son forfait. Rien d'une personne du
+-- patro, aucun enfant.
 create or replace function plateforme_forfaits()
 returns jsonb
 language plpgsql stable security definer set search_path = public as $fn$

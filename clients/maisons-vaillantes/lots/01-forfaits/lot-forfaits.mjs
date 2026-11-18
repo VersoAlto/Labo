@@ -1,9 +1,22 @@
 // Banc du lot « forfaits » (migration 069). Un scénario, joué sur une base
 // neuve, puis rejoué sur des bases où l'on a retiré une garde : chaque
 // mutant doit faire échouer l'affirmation qui le surveille.
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { monterBase, enTantQue } from '../../../../reserve/banc/socle.mjs';
 
 const MIG = process.argv[2];
+
+/** La dernière définition d'une fonction AVANT la 069 : le mutant « sans sa garde » la remet telle quelle. */
+function definitionAvant(nom) {
+  let d = null;
+  for (const f of readdirSync(MIG).filter(f => f.endsWith('.sql') && !f.startsWith('069')).sort()) {
+    const re = new RegExp(`create or replace function\\s+(?:public\\.)?${nom}\\s*\\([\\s\\S]*?\\$(\\w*)\\$[\\s\\S]*?\\$\\1\\$;`, 'g');
+    for (const m of readFileSync(join(MIG, f), 'utf8').matchAll(re)) d = m[0];
+  }
+  if (!d) throw new Error('définition introuvable : ' + nom);
+  return d;
+}
 const A = '00000000-0000-4000-8000-00000000000a';
 const B = '00000000-0000-4000-8000-00000000000b';
 
@@ -37,6 +50,8 @@ async function scenario(db, ADMIN) {
   const fb = await comme(B, `select bootstrap_patro('Patro B') id`);
   if (fa.erreur || fb.erreur) throw new Error('fondation : ' + (fa.erreur || fb.erreur));
   const pa = fa.rows[0].id, pb = fb.rows[0].id;
+  note('réinviter une adresse qui a fondé est refusé',
+    refuse(await comme(ADMIN, `select inviter_patro('a@banc.test', null, 'mv')`), 'déjà fondé'));
 
   note('un patro fondé sur invitation mv est en mv', (await comme(A, `select mon_forfait() f`)).rows?.[0]?.f === 'mv');
   note('un patro fondé sur invitation patronage est en patronage',
@@ -112,6 +127,26 @@ async function scenario(db, ADMIN) {
   await db.exec(`create function banc_retire(p_table text, p_id uuid) returns void language plpgsql security definer set search_path = public as $f$ begin execute format('delete from %I where id = $1', p_table) using p_id; end $f$;
             grant execute on function banc_retire(text, uuid) to authenticated`);
 
+  // Ce que l'équipe lit du jeu en mv : les témoins des masques posés au passage en patronage.
+  await su(`insert into foyers_responsables (foyer_id, nature, patro_id, profil_id) values ($1, 'annee', $2, $3)`, [foyerA, pa, A]);
+  const seance = (await su(`insert into seances (patro_id, date, titre) values ($1, current_date, 'Banc') returning id`, [pa]))[0].id;
+  const equipe = async () => {
+    const d = (await comme(A, `select mes_droits_de_valider() j`)).rows?.[0]?.j;
+    const m = (await comme(A, `select mise_en_route() j`)).rows?.[0]?.j;
+    const l = (await comme(A, `select foyer_id, foyer_nom from familles_seance($1) where vaillant_id = $2`, [seance, ea.id])).rows?.[0];
+    return { foyers: d?.foyers?.length, compte: m?.foyers ?? null, appel: l ? (l.foyer_nom ?? l.foyer_id) : 'absent' };
+  };
+  const e0 = await equipe();
+  note('mv : l’équipe lit ses foyers, leur compte, le foyer à l’appel',
+    e0.foyers === 1 && e0.compte === 1 && !!e0.appel && e0.appel !== 'absent', JSON.stringify(e0));
+  const pinGf = await comme(A, `select set_pin('grand_frere', $1, '654321')`, [ea.id]);
+  if (pinGf.erreur) throw new Error('préparation : code de grand frère → ' + pinGf.erreur);
+  const entreeGf = async () => {
+    try { return (await enTantQue(db, null, `select count(*)::int n from login_pin($1, 'grand_frere', '654321')`, [pa], 'anon')).rows[0].n; }
+    catch (e) { return 'erreur : ' + e.message; }
+  };
+  note('mv : le grand frère entre par son code', (await entreeGf()) === 1, String(await entreeGf()));
+
   let gf; try { await su(`update vaillants set est_grand_frere = true where id=$1`, [eb.id]); gf = null; } catch (e) { gf = e.message; }
   note('patronage : pas de grand frère', !!gf && gf.includes(MV), gf || 'accepté');
   let autre; try { await su(`update vaillants set note = 'vu' where id=$1`, [eb.id]); autre = null; } catch (e) { autre = e.message; }
@@ -148,6 +183,11 @@ async function scenario(db, ADMIN) {
   // Quatrième couche : les lectures du jeu ne rendent rien.
   note('patronage ne lit plus son classement', (await classement()) === 0, String(await classement()));
   note('patronage ne lit plus sa progression', (await progression()) === 0, String(await progression()));
+  const e1 = await equipe();
+  note('patronage : l’équipe ne lit plus ses foyers', e1.foyers === 0, JSON.stringify(e1));
+  note('patronage : ni leur compte', e1.compte === null, JSON.stringify(e1));
+  note('patronage : ni le foyer à l’appel', e1.appel === null, JSON.stringify(e1));
+  note('patronage : le grand frère n’entre plus par son code', (await entreeGf()) === 0, String(await entreeGf()));
 
   // Le code d'un grand frère ne se pose ni ne se retire.
   note('patronage : poser un code de grand frère refusé', refuse(await comme(A, `select set_pin('grand_frere', $1, '123456')`, [ea.id]), MV));
@@ -155,6 +195,8 @@ async function scenario(db, ADMIN) {
 
   // La corbeille d'abord, tant qu'Anne est chef : supprimer, puis rendre, validations et place comprises.
   const sup = await comme(A, `select mettre_a_la_corbeille(array[$1]::uuid[], gen_random_uuid())`, [ea.id]);
+  const vu = sup.erreur ? null : (await comme(A, `select points, foyer_nom from corbeille_vaillants() where vaillant_id = $1`, [ea.id])).rows?.[0];
+  note('patronage : la corbeille ne dit ni points ni foyer', !!vu && vu.points === null && vu.foyer_nom === null, JSON.stringify(vu));
   const rendu = sup.erreur ? sup : await comme(A, `select restaurer_vaillants(array[$1]::uuid[])`, [ea.id]);
   note('patronage : rendre un enfant depuis la corbeille passe', !rendu.erreur
     && (await su(`select (select foyer_id from vaillants where id=$2) m, (select count(*) from validations where patro_id=$1)::int v, (select cf_id from foyers where id=$3) c`, [pa, ea.id, foyerA]))
@@ -189,12 +231,20 @@ async function scenario(db, ADMIN) {
   note('… et les validations', (await comme(A, `select count(*)::int n from validations`)).rows?.[0]?.n === 2);
   note('un changement de forfait laisse une trace', (await su(`select count(*)::int n from action_log where patro_id=$1 and type_action='forfait_change'`, [pa]))[0].n === 2);
   note('… et le classement', (await classement()) === 1, String(await classement()));
+  note('mv retrouvé : l’équipe relit ses foyers', (await equipe()).foyers === 1);
+  note('la fondation laisse une trace dans l’histoire des forfaits',
+    (await su(`select string_agg(vers::text, ',' order by (patro_id = $1) desc) v from forfaits_historique where geste = 'fondation' and patro_id in ($1, $2)`, [pa, pb]))[0].v === 'mv,patronage');
+  await su(`update action_log set created_at = now() - interval '40 days' where type_action = 'forfait_change'`);
+  const pj = await comme(A, `select purger_journal(30)`);
+  note('le directeur purge son journal sans effacer l’histoire des forfaits', !pj.erreur
+    && (await su(`select count(*)::int n from forfaits_historique where patro_id = $1 and geste = 'changement'`, [pa]))[0].n === 2, pj.erreur);
+  note('… ni la lire', refuse(await comme(A, `select * from forfaits_historique`), 'permission denied'));
 
   // Effacer un enfant reste possible en patronage, validations comprises.
   await comme(ADMIN, `select changer_forfait($1, 'patronage')`, [pa]);
   // La purge d'une fiche archivée passe même lancée par l'API : sinon, une seule fiche l'arrêterait pour tous.
   const arch2 = await comme(A, `select archiver_vaillant($1)`, [ea.id]);
-  const purge = arch2.erreur ? arch2 : await comme(A, `select banc_retire('validations', $1)`, [(await su(`select id from validations where patro_id=$1 and objectif_id=$2`, [pa, oa4]))[0].id]);
+  const purge = arch2.erreur ? arch2 : await comme(A, `select banc_retire('validations', $1)`, [(await su(`select id from validations where patro_id=$1 and objectif_id=$2`, [pa, oa4]))[0]?.id ?? null]);
   note('patronage : la purge d’un archivé passe même par l’API', !purge.erreur
     && (await su(`select count(*)::int n from validations where patro_id=$1`, [pa]))[0].n === 1, purge.erreur);
   // Réintégrée, Anne n'est plus archivée : son effacement éprouve la cascade, et elle seule.
@@ -228,6 +278,14 @@ const MUTANTS = [
   ['foyers modifiables en sommeil', `drop trigger foyers_fige_maj_trg on foyers`, 'patronage : écrire un chef de foyer refusé'],
   ['gel aveugle aux archivés', `drop trigger validations_fige_trg on validations; create trigger validations_fige_trg before delete on validations for each row execute function jeu_fige_au_forfait_patronage()`, 'patronage : la purge d’un archivé passe même par l’API'],
   ['invitation qui naît en mv', `alter table acces_autorises alter column forfait set default 'mv'`, 'une invitation par l’ancien chemin naît en patronage'],
+  ['réinvitation muette', `create or replace function inviter_patro(p_email text, p_note text, p_forfait forfait_patro) returns void language plpgsql security definer set search_path = public as $f$ begin perform autoriser_acces(p_email, p_note); update acces_autorises set forfait = p_forfait where email = lower(trim(p_email)) and utilise_le is null; end $f$`, 'réinviter une adresse qui a fondé est refusé'],
+  ['histoire qui n’écrit rien', `create function banc_avale() returns trigger language plpgsql as $f$ begin return null; end $f$; create trigger banc_avale before insert on forfaits_historique for each row execute function banc_avale()`, 'la fondation laisse une trace dans l’histoire des forfaits'],
+  ['histoire lisible', `grant select on forfaits_historique to authenticated; create policy tout on forfaits_historique for select to authenticated using (true)`, '… ni la lire'],
+  ['mes_droits_de_valider sans garde', definitionAvant('mes_droits_de_valider'), 'patronage : l’équipe ne lit plus ses foyers'],
+  ['mise_en_route sans garde', definitionAvant('mise_en_route'), 'patronage : ni leur compte'],
+  ['familles_seance sans garde', definitionAvant('familles_seance'), 'patronage : ni le foyer à l’appel'],
+  ['corbeille_vaillants sans garde', definitionAvant('corbeille_vaillants'), 'patronage : la corbeille ne dit ni points ni foyer'],
+  ['login_pin sans garde', definitionAvant('login_pin'), 'patronage : le grand frère n’entre plus par son code'],
   ['sans le déclencheur de fondation', `drop trigger patros_forfait_a_la_fondation_trg on patros`, 'un patro fondé sur invitation patronage est en patronage'],
 ];
 
@@ -245,7 +303,7 @@ for (const [nom, sql, cible] of MUTANTS) {
   await db.exec(sql);
   let R; try { R = await scenario(db, fondateur); } catch (e) { R = { [cible]: 'scénario interrompu : ' + e.message }; }
   const tue = R[cible] !== true;
-  console.log(`Mutant « ${nom} » : ${tue ? 'tué' : 'SURVIT'}  (${cible})`);
+  console.log(`Mutant « ${nom} » : ${tue ? 'tué' : 'SURVIT'}  (${cible})${tue ? ' → ' + String(R[cible]).slice(0, 90) : ''}`);
   if (!tue) mauvais++;
 }
 process.exit(mauvais ? 1 : 0);
