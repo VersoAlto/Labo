@@ -88,3 +88,25 @@ pour annoncer un défaut.
 - Demander à l'auditeur d'afficher son rapport en entier dans la
   conversation, dès le premier passage.
 
+## 18 novembre 2026 · le suivi des patros
+
+**Ce qui a marché.** Écrire le contrat avant le code, même avec un « go
+avec tes choix » : les douze décisions ont tenu sans retouche, sauf la
+liste des étapes de mise en route, corrigée en lisant l'écran du
+directeur. Le banc cherche les noms dans la réponse entière, ce qui
+attrape une fuite qu'on n'a pas imaginée.
+
+**Ce qui a raté.** Un mutant (la fonction ouverte aux anonymes) a
+survécu au premier passage : la garde interne refusait quand même,
+l'affirmation était trop large pour voir qu'une barrière était tombée.
+Et la capture « sombre » était claire : l'application démarre en jour
+tant qu'on n'a rien choisi, le contrôle doit choisir.
+
+**Ce qu'il faut retenir.**
+- Deux barrières, deux affirmations : chacune doit dire laquelle a
+  refusé.
+- Un contrôle de thème choisit le thème comme un utilisateur, il ne se
+  fie pas au réglage du système.
+- Regarder les captures soi-même : c'est là qu'on a vu les chiffres du
+  portillon trop petits, que l'outil ne contrôlait pas.
+

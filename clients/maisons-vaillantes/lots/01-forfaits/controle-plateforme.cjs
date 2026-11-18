@@ -12,7 +12,7 @@ const U = 'http://localhost:4180';
     await p.goto(U + '/demo/plateforme'); await p.waitForTimeout(1500);
     const t = `${l}px ${schema}`;
     note(`${t} : l'écran s'ouvre`, await p.locator('text=Inviter un patronage').count() === 1);
-    note(`${t} : trois patros avec leur forfait`, await p.locator('[data-forfait-patro]').count() === 3);
+    note(`${t} : quatre patros avec leur forfait`, await p.locator('[data-forfait-patro]').count() === 4);
     note(`${t} : forfait proposé d'abord = patronage`, await p.locator('#p-forfait').inputValue() === 'patronage');
     await p.screenshot({ path: `${__dirname}/plateforme-${l}-${schema}.png`, fullPage: true });
 
