@@ -148,3 +148,94 @@ Branche `suivi` de `mv-app`, poussée, non fusionnée. Rien n'est appliqué
   de quelques centaines.
 - La justesse du seuil et des signaux face à de vrais patros.
 - Un audit par une autre session : `02-suivi/brief-audit.md`.
+
+## 9. Après l'audit, le 19 novembre 2026
+
+Une session neuve a audité le lot (`02-suivi/rapport-audit.md`). Aucune
+fuite hors de la plateforme. Mais le signal se trompait dans les deux
+sens, et le plus probable était le plus coûteux : **un patro vivant
+signalé « à relancer »**. Les décisions du § 6 qui changent :
+
+13. **Un signe de vie, un par patro et par jour** (remplace en partie
+    la décision 1). La connexion de Supabase ne bouge pas tant que la
+    session reste ouverte : l'application note donc, à l'ouverture
+    d'une session de l'équipe, que le patro a été ouvert ce jour-là
+    (`patros_passages`, fermée, sans dire qui, gardée treize mois).
+    C'est la seule table que crée le lot ; le § 4 disait « aucune » :
+    corrigé ici.
+14. **Les gestes du quotidien comptent** (décision 1 élargie) : la
+    feuille d'appel imprimée, les réponses des familles, la présence de
+    l'équipe, l'inscription d'un enfant, en plus des séances créées, des
+    appels et des validations.
+15. **Toute date d'activité est bornée au jour de référence.** Une date
+    écrite dans le futur par un directeur ne compte pas ; la lecture
+    « au 1er août » est l'état de ce jour-là.
+16. **Le seuil passe à 28 jours** (décision 3) : les petites vacances
+    d'un patro du samedi contiennent trois samedis.
+17. **La pause d'été va du 1er juillet au 30 septembre** (décision 4),
+    et seulement pour un patro qui a vécu après le 1er juin. Un patro
+    arrêté avant juin est à relancer, même l'été.
+18. **Pas démarré le premier mois, à relancer ensuite** (décision 2).
+19. **Les enfants comptent les fiches provisoires** (décision 8), comme
+    l'écran du directeur : une inscription en ligne arrive ainsi.
+20. **Une validation compte quel que soit le forfait d'aujourd'hui** :
+    passer en Patronage ne fait plus sonner l'alarme.
+21. **La double authentification est faite quand tous les directeurs
+    l'ont** ; **une famille compte une fois**, compte et code compris.
+22. **Les étapes arrivent dans l'ordre de l'écran du directeur** (une
+    liste, plus un objet).
+23. **Une date seule s'affiche au bon jour partout** (`dateFr`,
+    utilisée dans toute l'application) : elle reculait d'un jour à
+    l'ouest de Greenwich, la Martinique comprise.
+24. **Un signal inconnu se dit tel quel** et a son filtre ; il ne
+    s'affiche plus « Actif ».
+25. **La démonstration suit la même saison** : l'été, son patro
+    silencieux passe en pause. Hors saison, elle montre trois signaux,
+    pas quatre (le § 2 le disait à tort).
+
+### Laissé ouvert
+
+- **F1 · une date qui désigne une personne.** Dans un patro où une seule
+  personne se sert de l'application, « dernière ouverture » et « double
+  authentification » parlent d'elle, et son adresse est dans le
+  portillon. C'est peu sensible, la plateforme y a un intérêt légitime
+  (savoir si le service sert), mais c'est une donnée personnelle :
+  **question pour Ruben**, ci-dessous.
+- **Les codes de secours de Supabase** naîtraient « vérifiés » (lu par
+  l'audit dans le code d'Auth) et cocheraient l'étape. À constater sur
+  la vraie base.
+- **Hors du lot** : la politique `admins_lecture` de `plateforme_admins`
+  (037:31) se lit elle-même. Sans danger aujourd'hui ; à réparer dans un
+  lot à part.
+- 0,7 px de débord dans l'en-tête à 390 px, hors du suivi, non corrigé.
+
+### Question ajoutée pour Ruben
+
+- **Dire aux directeurs ce que la plateforme voit.** Défaut proposé :
+  une phrase dans les conditions d'utilisation (« Verso Alto voit, pour
+  chaque patro, des chiffres d'usage et la date de la dernière
+  ouverture, jamais les noms »). Sinon, retirer la date et ne garder
+  que le signal.
+
+### Vérifié, et comment
+
+- Banc du lot : 41 affirmations sur 41 ; 24 mutants, tous tués par leur
+  affirmation. Chaque cas du rapport y est rejoué : séance postdatée,
+  feuille imprimée, réponse de famille, signe de vie, borne des
+  28 jours, été (vécu en juin, arrêté en mai, 30 septembre, 1er
+  octobre), forfait qui change, codirecteur protégé, famille à compte
+  et code.
+- Banc des forfaits : 67 sur 67. Tests de `mv-app` : 240 sur 240, dont
+  la date seule lue depuis la Martinique (le test échoue avec
+  l'ancienne lecture).
+- Navigateur : 51 contrôles sur 51, signal inconnu compris ; l'ancien
+  contrôle de la plateforme, 35 sur 35. Capture relue.
+
+### Pas vérifié
+
+- Toujours rien sur une vraie base.
+- Ces corrections sont de ma main : un second passage d'audit est
+  souhaitable.
+- L'appel du signe de vie part sans attendre ; en cas d'échec, rien ne
+  le dit. C'est voulu (il ne doit jamais gêner l'équipe), mais un patro
+  dont tous les appels échoueraient paraîtrait silencieux.

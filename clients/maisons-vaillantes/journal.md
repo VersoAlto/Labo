@@ -110,3 +110,25 @@ tant qu'on n'a rien choisi, le contrôle doit choisir.
 - Regarder les captures soi-même : c'est là qu'on a vu les chiffres du
   portillon trop petits, que l'outil ne contrôlait pas.
 
+## 19 novembre 2026 · l'audit du suivi
+
+**Ce qui a raté.** Mon banc éprouvait la règle que j'avais écrite, pas
+la vie d'un patro. Il ne savait pas qu'une session Supabase reste
+ouverte sans « connexion », ni qu'un patro fait l'appel sur papier, ni
+qu'un samedi revient trois fois dans des vacances de deux semaines. Le
+signal pouvait dire « à relancer » d'un patro bien vivant.
+
+**Ce qui a marché.** L'audit a joué des calendriers entiers, jour par
+jour. Chacun de ses cas est devenu une affirmation, et chaque
+correction un mutant.
+
+**Ce qu'il faut retenir.**
+- Un indicateur d'activité se teste contre une semaine réelle d'usage,
+  geste par geste, pas contre la définition qu'on en a donnée.
+- Une date que le client peut écrire ne prouve rien : bornée, ou posée
+  par le serveur.
+- Un objet `jsonb` ne garde pas l'ordre de ses clés : un ordre qui
+  compte s'écrit en liste.
+- Une date seule se lit comme un jour du calendrier, jamais par
+  `new Date('AAAA-MM-JJ')`.
+

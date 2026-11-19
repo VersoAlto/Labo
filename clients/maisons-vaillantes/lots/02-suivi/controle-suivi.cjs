@@ -70,6 +70,20 @@ const U = process.argv[2] || 'http://localhost:4181';
   note('panne : la liste des patros et leur forfait revient', await p.locator('[data-forfait-patro]').count() === 4);
   await p.screenshot({ path: `${__dirname}/suivi-panne-390.png`, fullPage: true });
   await c.close();
+  // Un signal que l'écran ne connaît pas : il se dit tel quel, et a son filtre (audit, E6).
+  const c2 = await b.newContext({ viewport: { width: 390, height: 800 } });
+  await c2.route(u => !u.href.startsWith(U), r => r.abort());
+  await c2.route(u => /\/src\/demo-plateforme\.js/.test(u.href), async (r) => {
+    const rep = await r.fetch(); let corps = await rep.text();
+    corps = corps.replace('        signal, jours_sans_activite: d.jours,', "        signal: d.signal === 'pas_demarre' ? 'ferme' : signal, jours_sans_activite: d.jours,");
+    await r.fulfill({ response: rep, body: corps });
+  });
+  const p2 = await c2.newPage();
+  await p2.goto(U + '/demo/plateforme'); await p2.waitForTimeout(2500);
+  const inconnu = p2.locator('[data-signal="ferme"] .pastille');
+  note('signal inconnu : dit tel quel, jamais « Actif »', await inconnu.count() === 1 && (await inconnu.innerText()).trim() === 'ferme');
+  note('signal inconnu : il a son filtre', await p2.locator('[data-filtre="ferme"]').count() === 1);
+  await c2.close();
   await b.close();
 
   console.log(bilan.join('\n'));
